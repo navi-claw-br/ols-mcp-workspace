@@ -1,0 +1,66 @@
+# config.toml - Configuracao do openshift-mcp-server para Lightspeed
+# Este arquivo e montado como ConfigMap no pod
+
+# Nivel de log (0-9)
+log_level = 2
+
+# Modo read-only para seguranca em producao
+# read_only = true
+
+# Desabilitar operacoes destrutivas (delete, update)
+# disable_destructive = true
+
+# Toolsets habilitados
+toolsets = ["core", "config", "helm", "metrics"]
+
+# Modo de autenticacao: passthrough = usa token do usuario
+cluster_auth_mode = "passthrough"
+
+# Impedir multi-cluster (usa apenas o contexto atual)
+disable_multi_cluster = true
+
+# Recursos negados (protecao contra acesso a dados sensiveis)
+[[denied_resources]]
+group = ""
+version = "v1"
+kind = "Secret"
+
+[[denied_resources]]
+group = "rbac.authorization.k8s.io"
+version = "v1"
+kind = "ClusterRole"
+
+[[denied_resources]]
+group = "rbac.authorization.k8s.io"
+version = "v1"
+kind = "ClusterRoleBinding"
+
+[[denied_resources]]
+group = "rbac.authorization.k8s.io"
+version = "v1"
+kind = "Role"
+
+[[denied_resources]]
+group = "rbac.authorization.k8s.io"
+version = "v1"
+kind = "RoleBinding"
+
+# Instrucoes para o LLM sobre como usar as tools
+[server_instructions]
+text = """
+You are an MCP server for Red Hat OpenShift. You have access to the OpenShift/Kubernetes API
+and can perform operations using the permissions of the user who is currently logged in.
+
+Available toolsets:
+- core: Pod operations, resource CRUD, events, namespaces, projects
+- config: View kubeconfig contexts
+- helm: Manage Helm charts and releases
+- metrics: Prometheus queries and alertmanager alerts
+
+SECURITY RULES:
+1. NEVER read or expose Secrets, ConfigMaps, or RBAC configurations
+2. NEVER modify RBAC resources (ClusterRole, ClusterRoleBinding, Role, RoleBinding)
+3. All operations use the authenticated user's RBAC permissions
+4. Prefer read-only operations (list, get) over write operations
+5. For destructive operations, explain what will be changed before executing
+"""

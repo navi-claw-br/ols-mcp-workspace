@@ -1,0 +1,70 @@
+# values.yaml - Valores Helm para o openshift-mcp-server
+# Ref: https://github.com/openshift/openshift-mcp-server
+
+# Configuracoes principais
+replicaCount: 1
+
+image:
+  repository: quay.io/openshift/kubernetes-mcp-server
+  tag: latest
+  pullPolicy: Always
+
+# Modo HTTP (necessario para Lightspeed)
+# O MCP server precisa estar em modo HTTP Streamable/SSE
+service:
+  type: ClusterIP
+  port: 8080
+
+# Argumentos extras
+extraArgs:
+  - "--port=8080"
+  - "--log-level=2"
+
+# Configuracao do MCP server
+config:
+  # Read-only por seguranca - descomente para permitir writes
+  read_only: false
+
+  # Toolsets habilitados
+  toolsets:
+    - core
+    - config
+    - helm
+    - metrics
+
+  # Recursos negados (seguranca)
+  denied_resources:
+    - group: ""
+      version: "v1"
+      kind: "Secret"
+    - group: "rbac.authorization.k8s.io"
+      version: "v1"
+      kind: "ClusterRole"
+    - group: "rbac.authorization.k8s.io"
+      version: "v1"
+      kind: "ClusterRoleBinding"
+
+  # Modo de autenticacao para cluster
+  # "passthrough" = usa o token recebido (do usuario Lightspeed)
+  cluster_auth_mode: "passthrough"
+
+# ConfigMaps a montar
+extraConfigMaps:
+  - name: kubernetes-mcp-server-config
+    mountPath: /etc/kubernetes-mcp-server/config.toml
+    subPath: config.toml
+
+# Resources
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+# ServiceAccount
+serviceAccount:
+  create: true
+  name: kubernetes-mcp-server
+  annotations: {}

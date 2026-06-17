@@ -1,0 +1,111 @@
+# olsconfig.yaml - OLSConfig para OpenShift Lightspeed com MCP Server
+#
+# Este CR configura o OpenShift Lightspeed para:
+# 1. Usar um LLM provider (ex: OpenAI, Vertex AI)
+# 2. Integrar com o openshift-mcp-server para execucao de comandos
+# 3. Encaminhar o token do usuario para o MCP server
+#
+# Aplicar: oc apply -f olsconfig.yaml
+---
+apiVersion: ols.openshift.io/v1alpha1
+kind: OLSConfig
+metadata:
+  name: cluster
+spec:
+  # Feature gates necessarios
+  featureGates:
+    - MCPServer           # Habilita suporte a MCP servers
+    - ToolFiltering       # Habilita filtro de tools pelo LLM
+
+  # Configuracao do LLM Provider
+  llm:
+    providers:
+      - name: openai
+        type: openai
+        url: https://api.openai.com/v1
+        credentialsSecretRef:
+          name: openai              # Secret com apitoken
+        models:
+          - name: gpt-4o-mini
+
+  # Configuracao do OpenShift Lightspeed
+  ols:
+    # Provider padrao
+    defaultProvider: openai
+    defaultModel: gpt-4o-mini
+
+    # Log
+    logLevel: INFO
+
+    # Desabilitar MCP de observabilidade nativo
+    # (usamos nosso proprio MCP server)
+    introspectionEnabled: false
+
+    # Coleta de dados
+    userDataCollection:
+      feedbackDisabled: false
+      transcriptsDisabled: false
+
+    # Configuracao de aprovacao de tools
+    toolsApprovalConfig:
+      approvalType: tool_annotations
+      approvalTimeout: 600
+
+    # Configuracao de filtragem de tools
+    toolFilteringConfig:
+      alpha: 0.8
+      topK: 10
+      threshold: 0.01
+
+  # MCP Servers configurados
+  mcpServers:
+    # MCP Server principal para operacoes no OpenShift/Kubernetes
+    - name: openshift-mcp-server
+      # URL do MCP server (Streamable HTTP mode)
+      url: http://kubernetes-mcp-server.kubernetes-mcp-server.svc.cluster.local:8080/mcp
+      timeout: 120
+      headers:
+        # Encaminha o token Bearer do usuario logado
+        - name: Authorization
+          valueFrom:
+            type: kubernetes
+
+  # --- EXEMPLO: Provider alternativo com Google Vertex AI ---
+  # Descomente abaixo para usar Vertex AI (exige secrets gcp-credentials)
+  # llm:
+  #   providers:
+  #     - name: google-vertex
+  #       type: google_vertex
+  #       credentialsSecretRef:
+  #         name: gcp-credentials
+  #       googleVertexConfig:
+  #         projectID: <gcp-project-id>
+  #         location: us-east5
+  #       models:
+  #         - name: gemini-2.5-flash
+  #     - name: google-vertex-anthropic
+  #       type: google_vertex_anthropic
+  #       credentialsSecretRef:
+  #         name: gcp-credentials-anthropic
+  #       googleVertexAnthropicConfig:
+  #         projectID: <gcp-project-id>
+  #         location: us-east5
+  #       models:
+  #         - name: claude-sonnet-4@20250514
+  # ols:
+  #   defaultProvider: google-vertex-anthropic
+  #   defaultModel: claude-sonnet-4@20250514
+
+---
+
+# credentials-secret.yaml - Secret com credenciais do LLM provider
+# Aplicar separadamente: oc apply -f credentials-secret.yaml
+#
+# apiVersion: v1
+# kind: Secret
+# metadata:
+#   name: openai
+#   namespace: openshift-lightspeed
+# type: Opaque
+# stringData:
+#   apitoken: "sk-your-api-key-here"
