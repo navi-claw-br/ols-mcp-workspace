@@ -125,3 +125,25 @@ curl http://localhost:8080/stats
 # Auditoria no OpenShift
 oc get events --all-namespaces --field-selector involvedObject.kind=Pod
 ```
+
+## Falha comum em MCP customizado
+
+Se um MCP customizado mistura operacoes de leitura e escrita, nao basta
+propagar o token apenas no caminho de `get/list`. Operacoes como
+`create/apply/patch` tambem precisam usar explicitamente o token recebido
+no header `Authorization`.
+
+Sintoma tipico:
+
+```text
+system:serviceaccount:ols-mcp-server:ols-mcp-server cannot create httproutes
+```
+
+Interpretacao:
+
+- se o erro cita a service account do pod, o passthrough falhou
+- se o erro cita o usuario real, o passthrough funcionou e o problema e RBAC
+
+Para o runbook completo de validacao do servidor RHCL, veja:
+
+- `docs/rhcl-mcp-server-runbook.md`

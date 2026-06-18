@@ -12,6 +12,11 @@ O MCP Server suporta **qualquer recurso Kubernetes**, incluindo CRDs como:
 - `gateway.networking.k8s.io/v1` - Gateway, HTTPRoute, GRPCRoute
 - `kuadrant.io/v1` - AuthPolicy, RateLimitPolicy, DNSPolicy, TLSPolicy
 
+Operacoes de escrita devem respeitar o RBAC do usuario logado. Se a resposta
+do Lightspeed mencionar a service account do pod (`system:serviceaccount:...`)
+em vez do usuario real, isso indica problema no passthrough do token para o
+MCP customizado.
+
 ## Exemplos de prompts que funcionam
 
 ### Listar recursos do RHCL

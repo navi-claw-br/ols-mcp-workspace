@@ -4,4 +4,4 @@ byok/vector_db/
 
 # Cloned rag-content
 rag-content/
-rhcl-mcp-server/
+rhcl-mcp-server/__pycache__/

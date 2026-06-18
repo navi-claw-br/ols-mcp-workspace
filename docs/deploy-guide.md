@@ -128,6 +128,26 @@ oc get pods -n kubernetes-mcp-server
 oc get service kubernetes-mcp-server -n kubernetes-mcp-server
 ```
 
+## Passo 3B: Deploy do RHCL MCP Server customizado
+
+Use este passo se quiser tools especializadas para Gateway API e Kuadrant,
+além do `openshift-mcp-server` genérico.
+
+```bash
+cd rhcl-mcp-server
+podman build -t ghcr.io/navi-claw-br/rhcl-mcp-server:latest .
+podman push ghcr.io/navi-claw-br/rhcl-mcp-server:latest
+./deploy.sh
+```
+
+Verificar:
+
+```bash
+oc -n ols-mcp-server get deploy,pod,svc | grep rhcl-mcp-server
+```
+
+O runbook detalhado está em `docs/rhcl-mcp-server-runbook.md`.
+
 ## Passo 4: Configurar o Lightspeed
 
 ```bash
@@ -197,3 +217,15 @@ mcpServers:
 ### MCP server retorna "forbidden"
 
 O usuario nao tem permissao para a operacao solicitada. Conceda as Roles necessarias no OpenShift.
+
+### RHCL MCP server retorna erro com service account
+
+Se o erro citar `system:serviceaccount:ols-mcp-server:ols-mcp-server`,
+o problema nao e RBAC do usuario. Isso indica que o passthrough do token
+nao chegou na operacao de escrita. Confira:
+
+```bash
+oc get olsconfig cluster -o jsonpath='{.spec.mcpServers}' | jq .
+```
+
+E siga `docs/rhcl-mcp-server-runbook.md`.

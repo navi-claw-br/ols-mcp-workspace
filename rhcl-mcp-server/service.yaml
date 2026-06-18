@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: rhcl-mcp-server
+  namespace: ols-mcp-server
+  labels:
+    app: rhcl-mcp-server
+spec:
+  selector:
+    app: rhcl-mcp-server
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      protocol: TCP

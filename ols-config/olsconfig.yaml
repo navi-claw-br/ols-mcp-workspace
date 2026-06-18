@@ -69,6 +69,14 @@ spec:
         - name: Authorization
           valueFrom:
             type: kubernetes
+    # MCP customizado para recursos RHCL/Kuadrant
+    - name: rhcl-mcp-server
+      url: http://rhcl-mcp-server.ols-mcp-server.svc.cluster.local:8080
+      timeout: 120
+      headers:
+        - name: Authorization
+          valueFrom:
+            type: kubernetes
 
   # --- EXEMPLO: Provider alternativo com Google Vertex AI ---
   # Descomente abaixo para usar Vertex AI (exige secrets gcp-credentials)

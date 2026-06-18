@@ -31,6 +31,13 @@ ols-mcp-workspace/
 │   ├── values.yaml              # Valores Helm do openshift-mcp-server
 │   ├── config.toml              # Configuracao do MCP server
 │   └── rbac.yaml                # ClusterRole e bindings para users
+├── rhcl-mcp-server/             # MCP customizado para RHCL/Kuadrant
+│   ├── README.md                # Visao geral e validacao
+│   ├── Dockerfile               # Build da imagem customizada
+│   ├── deploy.sh                # Deploy/redeploy do servidor customizado
+│   ├── deployment.yaml          # Deployment do servidor
+│   ├── service.yaml             # Service do servidor
+│   └── rhcl_server.py           # Implementacao das tools RHCL
 ├── ols-config/                  # Configuracao do OpenShift Lightspeed
 │   ├── olsconfig.yaml           # OLSConfig CR com MCP servers
 │   └── credentials-secret.yaml  # Secret para LLM provider
@@ -52,7 +59,8 @@ ols-mcp-workspace/
 └── docs/
     ├── deploy-guide.md          # Guia de deploy completo
     ├── mcp-auth.md              # Detalhamento da autenticacao MCP
-    └── byok-guide.md            # Guia BYOK detalhado
+    ├── byok-guide.md            # Guia BYOK detalhado
+    └── rhcl-mcp-server-runbook.md # Runbook do MCP customizado RHCL
 ```
 
 ## Pré-requisitos
@@ -81,19 +89,33 @@ cd mcp-server
 ./deploy.sh
 ```
 
-### 3. Configurar Lightspeed
+### 3. Deploy do RHCL MCP Server
+
+```bash
+cd rhcl-mcp-server
+./deploy.sh
+```
+
+### 4. Configurar Lightspeed
 
 ```bash
 oc apply -f ols-config/olsconfig.yaml
 ```
 
-### 4. Conceder Acesso aos Usuários
+### 5. Conceder Acesso aos Usuários
 
 ```bash
 oc adm policy add-cluster-role-to-user ols-user <usuario>
 oc adm policy add-cluster-role-to-user view <usuario>
 oc adm policy add-cluster-role-to-user cluster-monitoring-view <usuario>
 ```
+
+## Documentação importante
+
+- `docs/deploy-guide.md` - deploy completo do stack
+- `docs/mcp-auth.md` - autenticação e passthrough do token
+- `docs/rhcl-mcp-server-runbook.md` - build, rollout, validação e troubleshooting do MCP RHCL
+- `rhcl-mcp-server/README.md` - resumo operacional do servidor customizado
 
 ## Licença
 
