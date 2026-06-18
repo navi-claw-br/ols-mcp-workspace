@@ -229,3 +229,13 @@ oc get olsconfig cluster -o jsonpath='{.spec.mcpServers}' | jq .
 ```
 
 E siga `docs/rhcl-mcp-server-runbook.md`.
+
+### Lightspeed expoe a aplicacao, mas sem hostname ou sem DNS
+
+Para RHCL, a exposicao externa correta exige:
+
+1. `HTTPRoute` com `hostname`
+2. `DNSPolicy` no `Gateway` quando ainda nao existir
+
+O comportamento esperado do MCP customizado e usar a tool `expose_service`
+para concluir isso automaticamente.

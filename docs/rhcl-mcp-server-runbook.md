@@ -12,6 +12,8 @@ Garantir que operações RHCL feitas pelo Lightspeed:
 - executem `oc` com `--token <token>`
 - respeitem o RBAC do usuário logado
 - não caiam no contexto da service account `ols-mcp-server`
+- não criem `HTTPRoute` externa sem `hostname`
+- garantam `DNSPolicy` no `Gateway` quando a aplicacao for publicada via FQDN
 
 ## Arquivos envolvidos
 
@@ -56,6 +58,10 @@ No `rhcl_server.py`:
 1. `set_user_token()` passou a limpar o token quando não houver bearer header
 2. `oc_create_resource()` passou a usar `get_oc_args(args)`
 3. cada requisição HTTP zera o token antes de ler o header `Authorization`
+4. `create_httproute` passou a exigir um hostname resolvido e usar `apply`
+5. `create_dnspolicy` passou a garantir `DNSPolicy` por `Gateway`
+6. `expose_service` passou a ser a tool preferida para deixar a API funcionando
+7. `hostname` pode ser informado diretamente ou derivado de `dns_suffix`
 
 ## Pré-requisitos
 
@@ -145,29 +151,33 @@ O `GET /` deve mostrar nome, versão e tools. O `tools/list` deve retornar:
 - `list_tlspolicies`
 - `get_gateway_status`
 - `create_httproute`
+- `create_dnspolicy`
+- `expose_service`
 - `create_authpolicy`
 
 ## Passo 7 - Validar passthrough do token em escrita
 
-Exemplo real usado para validar o fix:
+Exemplo real usado para validar o fluxo autonomo:
 
 ```bash
 TOKEN="$(oc whoami -t)"
 
-cat <<'JSON' >/tmp/mcp-create-route.json
+cat <<'JSON' >/tmp/mcp-expose-service.json
 {
   "jsonrpc": "2.0",
   "id": 1,
   "method": "tools/call",
   "params": {
-    "name": "create_httproute",
+    "name": "expose_service",
     "arguments": {
-      "name": "mcp-test-debugocp",
       "namespace": "debugocp3",
       "service": "debugocp",
+      "route_name": "mcp-test-debugocp",
+      "hostname": "debugocp.poc.rhcl.com.br",
       "port": 8080,
       "gateway": "rhcl-apps-gateway",
-      "gateway_namespace": "openshift-ingress"
+      "gateway_namespace": "openshift-ingress",
+      "ensure_dns_policy": true
     }
   }
 }
@@ -176,20 +186,16 @@ JSON
 curl -sS \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer ${TOKEN}" \
-  --data @/tmp/mcp-create-route.json \
+  --data @/tmp/mcp-expose-service.json \
   http://127.0.0.1:18081/
-```
-
-Resultado esperado:
-
-```json
-{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"httproute.gateway.networking.k8s.io/mcp-test-debugocp created\n"}]}}
 ```
 
 Confirmar no cluster:
 
 ```bash
 oc -n debugocp3 get httproute mcp-test-debugocp
+oc -n debugocp3 get httproute mcp-test-debugocp -o yaml | rg hostnames -n
+oc -n openshift-ingress get dnspolicies.kuadrant.io
 ```
 
 ## Passo 8 - Limpeza do teste
@@ -216,6 +222,15 @@ Checklist:
 2. conferir se o `OLSConfig` tem `valueFrom.type: kubernetes`
 3. conferir se a chamada ao MCP inclui `Authorization: Bearer <token>`
 4. reiniciar o deployment com a imagem nova
+
+### Caso 1B - HTTPRoute criada sem hostname
+
+Isso e um erro de comportamento do assistente. Para exposicao externa via RHCL:
+
+- `hostname` deve ser obrigatorio
+- alternativamente, o assistente deve resolver o FQDN via `dns_suffix`
+- `create_httproute` nao deve aceitar rota externa sem `hostname`
+- `expose_service` deve ser a tool preferida
 
 ### Caso 2 - erro cita o usuário real
 

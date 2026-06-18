@@ -4,10 +4,16 @@
 
 A DNSPolicy gerencia registros DNS para exposição de gateways, com suporte a health checks, load balancing multicluster e remediação automática.
 
+No fluxo de RHCL:
+
+- a `HTTPRoute` define o `hostname`
+- a `DNSPolicy` publica no DNS os hostnames das rotas conectadas ao `Gateway`
+- portanto, expor um servico externamente exige os dois lados
+
 ## Configuração Básica
 
 ```yaml
-apiVersion: kuadrant.io/v1alpha1
+apiVersion: kuadrant.io/v1
 kind: DNSPolicy
 metadata:
   name: my-dns-policy
@@ -37,7 +43,7 @@ stringData:
   AWS_ACCESS_KEY_ID: <key>
   AWS_SECRET_ACCESS_KEY: <secret>
 ---
-apiVersion: kuadrant.io/v1alpha1
+apiVersion: kuadrant.io/v1
 kind: ManagedZone
 metadata:
   name: example-com
@@ -52,7 +58,7 @@ spec:
 
 ### Azure DNS
 ```yaml
-apiVersion: kuadrant.io/v1alpha1
+apiVersion: kuadrant.io/v1
 kind: ManagedZone
 metadata:
   name: example-com
@@ -67,7 +73,7 @@ spec:
 
 ### Google Cloud DNS
 ```yaml
-apiVersion: kuadrant.io/v1alpha1
+apiVersion: kuadrant.io/v1
 kind: ManagedZone
 metadata:
   name: example-com
@@ -83,7 +89,7 @@ spec:
 ## Health Checks Avançados
 
 ```yaml
-apiVersion: kuadrant.io/v1alpha1
+apiVersion: kuadrant.io/v1
 kind: DNSPolicy
 metadata:
   name: advanced-health-check
@@ -126,7 +132,7 @@ Usuario -> DNS ---->+
 
 ```yaml
 # Cluster 1: us-east-1
-apiVersion: kuadrant.io/v1alpha1
+apiVersion: kuadrant.io/v1
 kind: DNSPolicy
 metadata:
   name: us-east-policy
@@ -143,7 +149,7 @@ spec:
 
 # Cluster 2: eu-west-1
 ---
-apiVersion: kuadrant.io/v1alpha1
+apiVersion: kuadrant.io/v1
 kind: DNSPolicy
 metadata:
   name: eu-west-policy
@@ -165,6 +171,15 @@ Quando um health check falha, o DNS controller automaticamente:
 1. Remove o endpoint unhealthy do DNS
 2. Redireciona tráfego para endpoints saudáveis
 3. Re-adiciona o endpoint quando recuperar
+
+## Regra pratica para o Lightspeed
+
+Se o usuario pedir para expor uma API e fornecer um FQDN, o assistente deve:
+
+1. garantir `hostnames` na `HTTPRoute`
+2. conferir se ja existe `DNSPolicy` para o `Gateway`
+3. criar a `DNSPolicy` se nao existir
+4. responder com o hostname final, nao com um manifesto para o usuario aplicar
 
 ```bash
 # Verificar health checks

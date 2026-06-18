@@ -17,6 +17,37 @@ do Lightspeed mencionar a service account do pod (`system:serviceaccount:...`)
 em vez do usuario real, isso indica problema no passthrough do token para o
 MCP customizado.
 
+## Regras operacionais para expor aplicacoes
+
+Quando o usuario pedir para expor, publicar ou colocar uma API no ar via RHCL,
+o comportamento esperado e autonomo:
+
+1. garantir uma `HTTPRoute` com `hostname`
+2. garantir uma `DNSPolicy` no `Gateway` se ainda nao existir
+3. responder com o FQDN final e com o que foi alterado
+
+Regras importantes:
+
+- nunca criar `HTTPRoute` externa sem `hostnames`
+- para exposicao externa, o `hostname` e obrigatorio
+- se o usuario nao fornecer FQDN, gerar a partir de `<service>.<dns_suffix>` quando o sufixo do ambiente for conhecido
+- `DNSPolicy` e ligada ao `Gateway`, nao a `HTTPRoute`
+- se ja existir `DNSPolicy` para o `Gateway`, reutilizar
+- preferir uma acao unica que deixe a API funcionando, em vez de apenas gerar YAML
+
+### Ferramenta preferida
+
+Ao expor um servico, prefira a tool:
+
+- `expose_service`
+
+Ela deve:
+
+- criar ou atualizar a `HTTPRoute`
+- incluir o `hostname` ou gera-lo a partir de `dns_suffix`
+- garantir `DNSPolicy` no `Gateway` quando necessario
+- retornar o hostname final
+
 ## Exemplos de prompts que funcionam
 
 ### Listar recursos do RHCL
@@ -42,8 +73,9 @@ MCP customizado.
 ### Expor uma aplicacao via RHCL
 
 ```
-"Create an HTTPRoute for my-app pointing to my-app service on port 8080"
-"Expose the rhcl-lab service via the rhcl-apps-gateway"
+"Expose the rhcl-lab service via the rhcl-apps-gateway at rhcl-lab.poc.rhcl.com.br"
+"Publish the debugocp service in debugocp3 at debugocp.poc.rhcl.com.br"
+"Make my API reachable via RHCL and ensure DNS is published automatically"
 "Create an AuthPolicy to allow access to my HTTPRoute"
 "Configure TLS for my HTTPRoute"
 ```
@@ -75,4 +107,6 @@ Quando perguntar ao Lightspeed, use linguagem natural:
 - "List all Gateways" → MCP executa `oc get gateway -A`
 - "Show HTTPRoutes in tests namespace" → `oc get httproute -n tests`
 - "Describe the Gateway" → `oc describe gateway rhcl-apps-gateway -n openshift-ingress`
-- "Create HTTPRoute" → MCP cria via YAML/JSON
+- "Expose service via RHCL" → MCP deve preferir `expose_service`
+- "Create HTTPRoute" → use so quando o usuario pedir controle detalhado da rota
+- "Ensure DNS publication" → MCP deve conferir ou criar `DNSPolicy` no Gateway

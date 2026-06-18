@@ -2,8 +2,9 @@
 """RHCL MCP Server - Tools especializados para Red Hat Connectivity Link.
 
 Este servidor MCP fornece tools especificas para operar o RHCL:
-- Listar Gateways, HTTPRoutes, AuthPolicies
-- Criar HTTPRoutes e AuthPolicies
+- Listar Gateways, HTTPRoutes e policies do Kuadrant
+- Expor servicos com HTTPRoute + hostname
+- Garantir DNSPolicy no Gateway quando necessario
 - Diagnosticar Gateways
 """
 
@@ -93,6 +94,132 @@ def oc_create_resource(yaml_content: str, namespace: str = "") -> dict[str, Any]
         return {"success": False, "output": "", "error": str(e)}
 
 
+def oc_apply_resource(yaml_content: str, namespace: str = "") -> dict[str, Any]:
+    """Cria ou atualiza um recurso Kubernetes a partir de YAML."""
+    args = ["apply", "-f", "-"]
+    if namespace:
+        args += ["-n", namespace]
+
+    try:
+        result = subprocess.run(
+            get_oc_args(args),
+            input=yaml_content,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        return {"success": result.returncode == 0, "output": result.stdout,
+                "error": result.stderr if result.returncode != 0 else None}
+    except Exception as e:
+        return {"success": False, "output": "", "error": str(e)}
+
+
+def oc_get_json(resource: str, namespace: str = "", name: str = "") -> dict[str, Any]:
+    """Obtem um recurso generico em JSON."""
+    args = ["get"]
+    if namespace and namespace != "ALL":
+        args += ["-n", namespace]
+    elif namespace == "ALL":
+        args += ["-A"]
+
+    args.append(resource)
+    if name:
+        args.append(name)
+    args += ["-o", "json"]
+
+    rc, out = run_oc(args)
+    if rc != 0:
+        return {"success": False, "output": "", "error": out}
+
+    try:
+        return {"success": True, "output": json.loads(out), "error": None}
+    except json.JSONDecodeError:
+        return {"success": False, "output": "", "error": f"Invalid JSON from oc: {out}"}
+
+
+def find_dnspolicy_for_gateway(gateway: str, gateway_namespace: str) -> dict[str, Any]:
+    """Procura uma DNSPolicy que aponte para o Gateway informado."""
+    result = oc_get_json("dnspolicies.kuadrant.io", gateway_namespace)
+    if not result.get("success", False):
+        return result
+
+    items = result.get("output", {}).get("items", [])
+    for item in items:
+        target_ref = item.get("spec", {}).get("targetRef", {})
+        if target_ref.get("kind") == "Gateway" and target_ref.get("name") == gateway:
+            return {
+                "success": True,
+                "output": item.get("metadata", {}).get("name", ""),
+                "error": None,
+            }
+
+    return {"success": True, "output": "", "error": None}
+
+
+def build_httproute_yaml(name: str, namespace: str, service: str, port: int,
+                         gateway: str, gateway_namespace: str, hostname: str,
+                         path_prefix: str) -> str:
+    """Monta o YAML de uma HTTPRoute."""
+    return f"""apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {name}
+  namespace: {namespace}
+spec:
+  parentRefs:
+  - group: gateway.networking.k8s.io
+    kind: Gateway
+    name: {gateway}
+    namespace: {gateway_namespace}
+  hostnames:
+  - "{hostname}"
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: {path_prefix}
+    backendRefs:
+    - kind: Service
+      name: {service}
+      port: {port}
+"""
+
+
+def resolve_hostname(hostname: str, dns_suffix: str, service: str) -> str:
+    """Resolve o hostname final a partir do valor explicito ou sufixo DNS."""
+    if hostname:
+        return hostname
+
+    if dns_suffix:
+        normalized = dns_suffix.lstrip(".")
+        return f"{service}.{normalized}"
+
+    return ""
+
+
+def build_dnspolicy_yaml(name: str, gateway: str, gateway_namespace: str,
+                         health_check_path: str, health_check_port: int,
+                         health_check_protocol: str) -> str:
+    """Monta o YAML de uma DNSPolicy."""
+    return f"""apiVersion: kuadrant.io/v1
+kind: DNSPolicy
+metadata:
+  name: {name}
+  namespace: {gateway_namespace}
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: Gateway
+    name: {gateway}
+  healthCheck:
+    path: {health_check_path}
+    port: {health_check_port}
+    protocol: {health_check_protocol}
+    failureThreshold: 3
+    successThreshold: 1
+"""
+
+
 # --- MCP Tool handlers ---
 
 def handle_list_gateways(params: dict) -> dict:
@@ -141,7 +268,7 @@ def handle_get_gateway_status(params: dict) -> dict:
 
 
 def handle_create_httproute(params: dict) -> dict:
-    """Create an HTTPRoute to expose a service via a Gateway."""
+    """Create or update an HTTPRoute to expose a service via a Gateway."""
     name = params.get("name", "")
     namespace = params.get("namespace", "")
     service = params.get("service", "")
@@ -149,29 +276,136 @@ def handle_create_httproute(params: dict) -> dict:
     gateway = params.get("gateway", "rhcl-apps-gateway")
     gateway_namespace = params.get("gateway_namespace", "openshift-ingress")
     hostname = params.get("hostname", "")
+    dns_suffix = params.get("dns_suffix", "")
+    path_prefix = params.get("path_prefix", "/")
 
     if not all([name, namespace, service]):
         return {"success": False, "output": "",
                 "error": "name, namespace, and service are required"}
 
-    yaml = f"""apiVersion: gateway.networking.k8s.io/v1
-kind: HTTPRoute
-metadata:
-  name: {name}
-  namespace: {namespace}
-spec:
-  parentRefs:
-  - name: {gateway}
-    namespace: {gateway_namespace}
-"""
-    if hostname:
-        yaml += f"  hostnames:\n  - \"{hostname}\"\n"
-    yaml += f"""  rules:
-  - backendRefs:
-    - name: {service}
-      port: {port}
-"""
-    return oc_create_resource(yaml, namespace)
+    hostname = resolve_hostname(hostname, dns_suffix, service)
+    if not hostname:
+        return {
+            "success": False,
+            "output": "",
+            "error": "hostname or dns_suffix is required for external exposure via RHCL",
+        }
+
+    yaml = build_httproute_yaml(
+        name,
+        namespace,
+        service,
+        port,
+        gateway,
+        gateway_namespace,
+        hostname,
+        path_prefix,
+    )
+    return oc_apply_resource(yaml, namespace)
+
+
+def handle_create_dnspolicy(params: dict) -> dict:
+    """Ensure a DNSPolicy exists for a Gateway."""
+    gateway = params.get("gateway", "rhcl-apps-gateway")
+    gateway_namespace = params.get("gateway_namespace", "openshift-ingress")
+    name = params.get("name", f"{gateway}-dns")
+    health_check_path = params.get("health_check_path", "/")
+    health_check_port = params.get("health_check_port", 80)
+    health_check_protocol = params.get("health_check_protocol", "HTTP")
+
+    existing = find_dnspolicy_for_gateway(gateway, gateway_namespace)
+    if not existing.get("success", False):
+        return existing
+
+    existing_name = existing.get("output", "")
+    if existing_name:
+        return {
+            "success": True,
+            "output": (
+                f"DNSPolicy {existing_name} already exists for Gateway "
+                f"{gateway} in namespace {gateway_namespace}\n"
+            ),
+            "error": None,
+        }
+
+    yaml = build_dnspolicy_yaml(
+        name,
+        gateway,
+        gateway_namespace,
+        health_check_path,
+        health_check_port,
+        health_check_protocol,
+    )
+    return oc_apply_resource(yaml, gateway_namespace)
+
+
+def handle_expose_service(params: dict) -> dict:
+    """Expose a Service via RHCL, ensuring HTTPRoute + DNSPolicy."""
+    namespace = params.get("namespace", "")
+    service = params.get("service", "")
+    hostname = params.get("hostname", "")
+    dns_suffix = params.get("dns_suffix", "")
+    route_name = params.get("route_name", service)
+    port = params.get("port", 8080)
+    gateway = params.get("gateway", "rhcl-apps-gateway")
+    gateway_namespace = params.get("gateway_namespace", "openshift-ingress")
+    path_prefix = params.get("path_prefix", "/")
+    ensure_dns_policy = params.get("ensure_dns_policy", True)
+    dns_policy_name = params.get("dns_policy_name", f"{gateway}-dns")
+    health_check_path = params.get("health_check_path", "/")
+    health_check_port = params.get("health_check_port", 80)
+    health_check_protocol = params.get("health_check_protocol", "HTTP")
+
+    if not all([namespace, service]):
+        return {
+            "success": False,
+            "output": "",
+            "error": "namespace and service are required",
+        }
+
+    hostname = resolve_hostname(hostname, dns_suffix, service)
+    if not hostname:
+        return {
+            "success": False,
+            "output": "",
+            "error": "hostname or dns_suffix is required",
+        }
+
+    route_result = handle_create_httproute({
+        "name": route_name,
+        "namespace": namespace,
+        "service": service,
+        "port": port,
+        "gateway": gateway,
+        "gateway_namespace": gateway_namespace,
+        "hostname": hostname,
+        "path_prefix": path_prefix,
+    })
+    if not route_result.get("success", False):
+        return route_result
+
+    dns_summary = "DNSPolicy step skipped"
+    if ensure_dns_policy:
+        dns_result = handle_create_dnspolicy({
+            "name": dns_policy_name,
+            "gateway": gateway,
+            "gateway_namespace": gateway_namespace,
+            "health_check_path": health_check_path,
+            "health_check_port": health_check_port,
+            "health_check_protocol": health_check_protocol,
+        })
+        if not dns_result.get("success", False):
+            return dns_result
+        dns_summary = dns_result.get("output", "").strip()
+
+    summary = (
+        f"HTTPRoute {route_name} ensured in namespace {namespace}\n"
+        f"Service: {service}:{port}\n"
+        f"Gateway: {gateway} ({gateway_namespace})\n"
+        f"Hostname: {hostname}\n"
+        f"{dns_summary}\n"
+    )
+    return {"success": True, "output": summary, "error": None}
 
 
 def handle_create_authpolicy(params: dict) -> dict:
@@ -206,7 +440,7 @@ spec:
           priority: 1
     strategy: atomic
 """
-    return oc_create_resource(yaml, namespace)
+    return oc_apply_resource(yaml, namespace)
 
 
 # --- JSON-RPC handlers ---
@@ -259,7 +493,8 @@ tools_registry = {
         "handler": handle_list_ratelimitpolicies,
     },
     "list_dnspolicies": {
-        "description": "List all DNSPolicy resources (Kuadrant API).",
+        "description": "List all DNSPolicy resources (Kuadrant API). "
+                       "DNSPolicy is attached to a Gateway, not to an HTTPRoute.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -292,10 +527,12 @@ tools_registry = {
         "handler": handle_get_gateway_status,
     },
     "create_httproute": {
-        "description": "Create an HTTPRoute to expose a service via "
-                       "the RHCL Gateway. Requires: name, namespace, "
-                       "service. Optional: port (default 8080), "
-                       "gateway, gateway_namespace, hostname.",
+        "description": "Create or update an HTTPRoute to expose a service via "
+                       "the RHCL Gateway. External exposure requires a resolved "
+                       "hostname, so provide hostname directly or provide "
+                       "dns_suffix to generate <service>.<dns_suffix>. Prefer "
+                       "expose_service when you want the application reachable "
+                       "end-to-end.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -305,11 +542,58 @@ tools_registry = {
                 "port": {"type": "integer"},
                 "gateway": {"type": "string"},
                 "gateway_namespace": {"type": "string"},
-                "hostname": {"type": "string"}
+                "hostname": {"type": "string"},
+                "dns_suffix": {"type": "string"},
+                "path_prefix": {"type": "string"}
             },
             "required": ["name", "namespace", "service"]
         },
         "handler": handle_create_httproute,
+    },
+    "create_dnspolicy": {
+        "description": "Ensure a DNSPolicy exists for a Gateway so hostnames "
+                       "from HTTPRoutes can be published automatically. "
+                       "Use this when exposing services externally via RHCL.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "gateway": {"type": "string"},
+                "gateway_namespace": {"type": "string"},
+                "health_check_path": {"type": "string"},
+                "health_check_port": {"type": "integer"},
+                "health_check_protocol": {"type": "string"}
+            }
+        },
+        "handler": handle_create_dnspolicy,
+    },
+    "expose_service": {
+        "description": "Preferred high-level tool to make an API reachable via "
+                       "RHCL. It ensures the HTTPRoute has a hostname and ensures "
+                       "a DNSPolicy exists on the target Gateway if needed. "
+                       "Provide hostname directly or provide dns_suffix to "
+                       "generate <service>.<dns_suffix> automatically.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "namespace": {"type": "string"},
+                "service": {"type": "string"},
+                "hostname": {"type": "string"},
+                "dns_suffix": {"type": "string"},
+                "route_name": {"type": "string"},
+                "port": {"type": "integer"},
+                "gateway": {"type": "string"},
+                "gateway_namespace": {"type": "string"},
+                "path_prefix": {"type": "string"},
+                "ensure_dns_policy": {"type": "boolean"},
+                "dns_policy_name": {"type": "string"},
+                "health_check_path": {"type": "string"},
+                "health_check_port": {"type": "integer"},
+                "health_check_protocol": {"type": "string"}
+            },
+            "required": ["namespace", "service"]
+        },
+        "handler": handle_expose_service,
     },
     "create_authpolicy": {
         "description": "Create an AuthPolicy for an HTTPRoute. "
@@ -331,10 +615,10 @@ tools_registry = {
 
 SERVER_INFO = {
     "name": "rhcl-mcp-server",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "description": "MCP Server for Red Hat Connectivity Link operations. "
                    "Provides tools to manage Gateways, HTTPRoutes, "
-                   "AuthPolicies, and other RHCL resources.",
+                   "DNSPolicy, AuthPolicies, and other RHCL resources.",
 }
 
 

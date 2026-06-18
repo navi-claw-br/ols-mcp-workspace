@@ -4,6 +4,10 @@ Servidor MCP customizado para operar recursos do Red Hat Connectivity Link
 via OpenShift Lightspeed, incluindo `Gateway`, `HTTPRoute`, `AuthPolicy`,
 `RateLimitPolicy`, `DNSPolicy` e `TLSPolicy`.
 
+Objetivo principal: quando um desenvolvedor pedir para expor uma API, o
+servidor deve preferir concluir a exposicao de ponta a ponta, e nao apenas
+devolver YAML.
+
 ## Arquivos
 
 - `rhcl_server.py` - servidor MCP HTTP com tools RHCL
@@ -18,8 +22,17 @@ Este servidor depende de passthrough do token do usuário:
 
 1. O Lightspeed chama o MCP com header `Authorization: Bearer <token>`
 2. O servidor extrai esse token
-3. As operações `oc get` e `oc create` precisam usar `--token <token>`
+3. As operações `oc get`, `oc apply` e equivalentes precisam usar `--token <token>`
 4. O RBAC efetivo deve ser o do usuário logado, nunca o da service account do pod
+
+## Regras de exposicao
+
+- nao criar `HTTPRoute` externa sem `hostname`
+- preferir `expose_service` para exposicao via RHCL
+- se o FQDN nao vier explicito, aceitar `dns_suffix` para gerar `<service>.<dns_suffix>`
+- garantir `DNSPolicy` no `Gateway` se ainda nao existir
+- se a rota ja existir sem hostname, atualiza-la
+- responder com o FQDN final e o que foi ajustado
 
 ## Bug corrigido em 2026-06-18
 
@@ -51,5 +64,5 @@ Ele cobre:
 - validação do `OLSConfig`
 - port-forward no serviço/pod
 - `tools/list`
-- `tools/call` com `create_httproute`
+- `tools/call` com `expose_service`
 - troubleshooting para diferenciar erro de passthrough vs. erro real de RBAC

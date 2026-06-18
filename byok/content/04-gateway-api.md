@@ -64,12 +64,18 @@ spec:
           port: 8080
 ```
 
+Para exposicao externa via RHCL:
+
+- `hostnames` nao deve ficar vazio
+- a rota deve apontar para um `Gateway` valido
+- o hostname deve ser um FQDN que o time queira publicar
+
 ## Políticas Gateway API no Connectivity Link
 
 ### TLSPolicy - Gerenciamento de Certificados
 
 ```yaml
-apiVersion: kuadrant.io/v1alpha1
+apiVersion: kuadrant.io/v1
 kind: TLSPolicy
 metadata:
   name: my-tls-policy
@@ -87,7 +93,7 @@ spec:
 ### AuthPolicy - Autenticação e Autorização
 
 ```yaml
-apiVersion: kuadrant.io/v1alpha1
+apiVersion: kuadrant.io/v1
 kind: AuthPolicy
 metadata:
   name: my-auth-policy
@@ -107,7 +113,7 @@ spec:
 ### RateLimitPolicy - Rate Limiting
 
 ```yaml
-apiVersion: kuadrant.io/v1alpha1
+apiVersion: kuadrant.io/v1
 kind: RateLimitPolicy
 metadata:
   name: my-rate-limit
@@ -129,7 +135,7 @@ spec:
 ### DNSPolicy - DNS Multicluster
 
 ```yaml
-apiVersion: kuadrant.io/v1alpha1
+apiVersion: kuadrant.io/v1
 kind: DNSPolicy
 metadata:
   name: my-dns-policy
@@ -146,6 +152,12 @@ spec:
     defaultGeo: us-east
 ```
 
+Importante:
+
+- `DNSPolicy` e associada ao `Gateway`
+- os FQDNs publicados vem dos `hostnames` das `HTTPRoutes` anexadas a esse `Gateway`
+- se nao houver `hostname` na `HTTPRoute`, nao ha FQDN especifico para publicar
+
 ## Boas Práticas
 
 1. Sempre use HTTPS com certificados TLS
@@ -153,3 +165,4 @@ spec:
 3. Use autenticação JWT para APIs expostas externamente
 4. Configure health checks no DNSPolicy para remediação automática
 5. Separe gateways por ambiente (dev, staging, prod)
+6. Ao expor uma API, garanta `hostname` na `HTTPRoute` e `DNSPolicy` no `Gateway`
