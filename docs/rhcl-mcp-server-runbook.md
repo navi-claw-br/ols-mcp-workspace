@@ -62,6 +62,7 @@ No `rhcl_server.py`:
 5. `create_dnspolicy` passou a garantir `DNSPolicy` por `Gateway`
 6. `expose_service` passou a ser a tool preferida para deixar a API funcionando
 7. `hostname` pode ser informado diretamente ou derivado de `dns_suffix`
+8. `delete_httproute` remove uma exposicao existente com seguranca
 
 ## Pré-requisitos
 
@@ -152,6 +153,7 @@ O `GET /` deve mostrar nome, versão e tools. O `tools/list` deve retornar:
 - `get_gateway_status`
 - `create_httproute`
 - `create_dnspolicy`
+- `delete_httproute`
 - `expose_service`
 - `create_authpolicy`
 
@@ -202,6 +204,23 @@ oc -n openshift-ingress get dnspolicies.kuadrant.io
 
 ```bash
 oc -n debugocp3 delete httproute mcp-test-debugocp
+```
+
+Via MCP:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tools/call",
+  "params": {
+    "name": "delete_httproute",
+    "arguments": {
+      "name": "mcp-test-debugocp",
+      "namespace": "debugocp3"
+    }
+  }
+}
 ```
 
 ## Como interpretar falhas

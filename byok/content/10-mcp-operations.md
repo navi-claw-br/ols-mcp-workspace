@@ -109,4 +109,5 @@ Quando perguntar ao Lightspeed, use linguagem natural:
 - "Describe the Gateway" → `oc describe gateway rhcl-apps-gateway -n openshift-ingress`
 - "Expose service via RHCL" → MCP deve preferir `expose_service`
 - "Create HTTPRoute" → use so quando o usuario pedir controle detalhado da rota
+- "Remove HTTPRoute" → MCP deve usar `delete_httproute`
 - "Ensure DNS publication" → MCP deve conferir ou criar `DNSPolicy` no Gateway

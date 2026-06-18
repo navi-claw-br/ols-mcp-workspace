@@ -114,6 +114,19 @@ def oc_apply_resource(yaml_content: str, namespace: str = "") -> dict[str, Any]:
         return {"success": False, "output": "", "error": str(e)}
 
 
+def oc_delete_resource(resource: str, name: str, namespace: str = "",
+                       ignore_not_found: bool = True) -> dict[str, Any]:
+    """Remove um recurso Kubernetes."""
+    args = ["delete", resource, name]
+    if namespace:
+        args += ["-n", namespace]
+    if ignore_not_found:
+        args += ["--ignore-not-found=true"]
+
+    rc, out = run_oc(args)
+    return {"success": rc == 0, "output": out, "error": None if rc == 0 else out}
+
+
 def oc_get_json(resource: str, namespace: str = "", name: str = "") -> dict[str, Any]:
     """Obtem um recurso generico em JSON."""
     args = ["get"]
@@ -135,6 +148,28 @@ def oc_get_json(resource: str, namespace: str = "", name: str = "") -> dict[str,
         return {"success": True, "output": json.loads(out), "error": None}
     except json.JSONDecodeError:
         return {"success": False, "output": "", "error": f"Invalid JSON from oc: {out}"}
+
+
+def sanitize_resource_for_apply(resource: dict[str, Any]) -> dict[str, Any]:
+    """Remove campos gerenciados pelo apiserver antes de reaplicar o objeto."""
+    cleaned = json.loads(json.dumps(resource))
+    metadata = cleaned.setdefault("metadata", {})
+    for key in (
+        "annotations",
+        "creationTimestamp",
+        "deletionGracePeriodSeconds",
+        "deletionTimestamp",
+        "finalizers",
+        "generation",
+        "managedFields",
+        "ownerReferences",
+        "resourceVersion",
+        "selfLink",
+        "uid",
+    ):
+        metadata.pop(key, None)
+    cleaned.pop("status", None)
+    return cleaned
 
 
 def find_dnspolicy_for_gateway(gateway: str, gateway_namespace: str) -> dict[str, Any]:
@@ -218,6 +253,27 @@ spec:
     failureThreshold: 3
     successThreshold: 1
 """
+
+
+def build_httproute_rule(service: str, port: int, path_prefix: str) -> dict[str, Any]:
+    """Monta uma regra padrao de HTTPRoute."""
+    return {
+        "matches": [
+            {
+                "path": {
+                    "type": "PathPrefix",
+                    "value": path_prefix,
+                }
+            }
+        ],
+        "backendRefs": [
+            {
+                "kind": "Service",
+                "name": service,
+                "port": port,
+            }
+        ],
+    }
 
 
 # --- MCP Tool handlers ---
@@ -339,6 +395,72 @@ def handle_create_dnspolicy(params: dict) -> dict:
     return oc_apply_resource(yaml, gateway_namespace)
 
 
+def handle_patch_httproute(params: dict) -> dict:
+    """Patch an existing HTTPRoute and converge it to the desired spec."""
+    name = params.get("name", "")
+    namespace = params.get("namespace", "")
+    service = params.get("service", "")
+    port = params.get("port", 8080)
+    gateway = params.get("gateway", "")
+    gateway_namespace = params.get("gateway_namespace", "")
+    hostname = params.get("hostname", "")
+    dns_suffix = params.get("dns_suffix", "")
+    path_prefix = params.get("path_prefix", "/")
+
+    if not all([name, namespace]):
+        return {
+            "success": False,
+            "output": "",
+            "error": "name and namespace are required",
+        }
+
+    route = oc_get_json("httproutes.gateway.networking.k8s.io", namespace, name)
+    if not route.get("success", False):
+        return route
+
+    obj = sanitize_resource_for_apply(route.get("output", {}))
+    spec = obj.setdefault("spec", {})
+
+    resolved_hostname = resolve_hostname(hostname, dns_suffix, service)
+    if resolved_hostname:
+        spec["hostnames"] = [resolved_hostname]
+
+    if gateway:
+        parent_ref = {
+            "group": "gateway.networking.k8s.io",
+            "kind": "Gateway",
+            "name": gateway,
+        }
+        if gateway_namespace:
+            parent_ref["namespace"] = gateway_namespace
+        spec["parentRefs"] = [parent_ref]
+
+    if service:
+        spec["rules"] = [build_httproute_rule(service, port, path_prefix)]
+
+    yaml = json.dumps(obj)
+    return oc_apply_resource(yaml, namespace)
+
+
+def handle_delete_httproute(params: dict) -> dict:
+    """Delete an existing HTTPRoute."""
+    name = params.get("name", "")
+    namespace = params.get("namespace", "")
+    if not all([name, namespace]):
+        return {
+            "success": False,
+            "output": "",
+            "error": "name and namespace are required",
+        }
+
+    return oc_delete_resource(
+        "httproutes.gateway.networking.k8s.io",
+        name,
+        namespace,
+        ignore_not_found=True,
+    )
+
+
 def handle_expose_service(params: dict) -> dict:
     """Expose a Service via RHCL, ensuring HTTPRoute + DNSPolicy."""
     namespace = params.get("namespace", "")
@@ -371,16 +493,29 @@ def handle_expose_service(params: dict) -> dict:
             "error": "hostname or dns_suffix is required",
         }
 
-    route_result = handle_create_httproute({
-        "name": route_name,
-        "namespace": namespace,
-        "service": service,
-        "port": port,
-        "gateway": gateway,
-        "gateway_namespace": gateway_namespace,
-        "hostname": hostname,
-        "path_prefix": path_prefix,
-    })
+    route_lookup = oc_get_json("httproutes.gateway.networking.k8s.io", namespace, route_name)
+    if route_lookup.get("success", False):
+        route_result = handle_patch_httproute({
+            "name": route_name,
+            "namespace": namespace,
+            "service": service,
+            "port": port,
+            "gateway": gateway,
+            "gateway_namespace": gateway_namespace,
+            "hostname": hostname,
+            "path_prefix": path_prefix,
+        })
+    else:
+        route_result = handle_create_httproute({
+            "name": route_name,
+            "namespace": namespace,
+            "service": service,
+            "port": port,
+            "gateway": gateway,
+            "gateway_namespace": gateway_namespace,
+            "hostname": hostname,
+            "path_prefix": path_prefix,
+        })
     if not route_result.get("success", False):
         return route_result
 
@@ -567,12 +702,49 @@ tools_registry = {
         },
         "handler": handle_create_dnspolicy,
     },
+    "patch_httproute": {
+        "description": "Patch an existing HTTPRoute to converge hostname, "
+                       "Gateway binding, backend service, port, and path. "
+                       "Prefer this when the route already exists.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "namespace": {"type": "string"},
+                "service": {"type": "string"},
+                "port": {"type": "integer"},
+                "gateway": {"type": "string"},
+                "gateway_namespace": {"type": "string"},
+                "hostname": {"type": "string"},
+                "dns_suffix": {"type": "string"},
+                "path_prefix": {"type": "string"}
+            },
+            "required": ["name", "namespace"]
+        },
+        "handler": handle_patch_httproute,
+    },
+    "delete_httproute": {
+        "description": "Delete an existing HTTPRoute. Safe to call when the "
+                       "route may already be absent because it uses "
+                       "ignore-not-found.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "namespace": {"type": "string"}
+            },
+            "required": ["name", "namespace"]
+        },
+        "handler": handle_delete_httproute,
+    },
     "expose_service": {
         "description": "Preferred high-level tool to make an API reachable via "
                        "RHCL. It ensures the HTTPRoute has a hostname and ensures "
                        "a DNSPolicy exists on the target Gateway if needed. "
                        "Provide hostname directly or provide dns_suffix to "
-                       "generate <service>.<dns_suffix> automatically.",
+                       "generate <service>.<dns_suffix> automatically. If the "
+                       "HTTPRoute already exists, patch it instead of creating "
+                       "a new one.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -615,7 +787,7 @@ tools_registry = {
 
 SERVER_INFO = {
     "name": "rhcl-mcp-server",
-    "version": "1.1.0",
+    "version": "1.3.0",
     "description": "MCP Server for Red Hat Connectivity Link operations. "
                    "Provides tools to manage Gateways, HTTPRoutes, "
                    "DNSPolicy, AuthPolicies, and other RHCL resources.",

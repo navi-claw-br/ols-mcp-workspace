@@ -32,6 +32,7 @@ Este servidor depende de passthrough do token do usuário:
 - se o FQDN nao vier explicito, aceitar `dns_suffix` para gerar `<service>.<dns_suffix>`
 - garantir `DNSPolicy` no `Gateway` se ainda nao existir
 - se a rota ja existir sem hostname, atualiza-la
+- permitir remocao segura da rota com `delete_httproute` quando precisar desfazer a exposicao
 - responder com o FQDN final e o que foi ajustado
 
 ## Bug corrigido em 2026-06-18
