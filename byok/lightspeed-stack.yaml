@@ -25,9 +25,11 @@ byok_rag:
     # Modelo de embedding usado na indexacao
     embedding_model: sentence-transformers/all-mpnet-base-v2
     embedding_dimension: 768
-    # ATUALIZE apos executar index-content.sh
-    vector_db_id: vs_placeholder_replace_me
-    db_path: /path/to/vector_db/faiss_store.db
+    # ATUALIZADO em 2026-06-18 - indexacao concluida
+    vector_db_id: rh-connectivity-link
+    db_path: /root/.openclaw/workspace-link/ols-mcp-workspace/byok/vector_db/output/faiss_store.db
+    # Configuracao gerada pelo llamastack-faiss
+    # Output config: byok/vector_db/output/llama-stack.yaml
     # Score multiplier: prioridade media para este conhecimento
     score_multiplier: 1.0
 
