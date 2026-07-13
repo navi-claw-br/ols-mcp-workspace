@@ -69,7 +69,9 @@ ols-mcp-workspace/
 - [OpenShift Lightspeed Operator](https://docs.redhat.com/en/documentation/red_hat_openshift_lightspeed/1.0/html/install/) instalado
 - `oc` e `helm` CLI
 - LLM Provider (OpenAI, Vertex AI, RHEL AI, etc.) com credenciais
-- (para BYOK) Lightspeed Core Service com suporte a BYOK
+- (para BYOK) OpenShift Lightspeed 1.0+ (Technology Preview) ou Lightspeed Core Service
+- Container tool (`podman` ou `docker`)
+- Registry acessível pelo cluster (interno OCP ou externo)
 
 ## Deploy Rápido
 
@@ -110,12 +112,64 @@ oc adm policy add-cluster-role-to-user view <usuario>
 oc adm policy add-cluster-role-to-user cluster-monitoring-view <usuario>
 ```
 
+## BYOK — Bring Your Own Knowledge
+
+Este repositório inclui um **conjunto completo** para criar uma imagem BYOK
+e disponibilizar conhecimento do **Red Hat Connectivity Link** no OpenShift
+Lightspeed.
+
+### Quick Start BYOK
+
+```bash
+cd byok
+
+# 1. Build da imagem BYOK (multi-stage, gera Vector DB FAISS)
+make build
+
+# 2. Push para o registry
+make push REGISTRY=<seu-registry>
+
+# 3. Configurar no OLSConfig
+# Adicione ao spec.ols.rag:
+#   - image: <registry>/openshift-lightspeed/byok-rhcl:latest
+#     indexID: vector_db_index
+#     indexPath: /rag/vector_db
+```
+
+### Estrutura BYOK
+
+```
+byok/
+├── Containerfile           ← Multi-stage build (gera FAISS index)
+├── Makefile                ← build / push / deploy / all
+├── README.md               ← Documentação completa
+├── content/                ← Documentos markdown do RHCL
+├── scripts/
+│   ├── build-byok.sh       ← Wrapper build + push
+│   ├── generate-vectordb.py← Gera FAISS index do markdown
+│   └── ...
+└── lightspeed-stack.yaml   ← (legado) Config Lightspeed Core
+```
+
+### Métodos de Build
+
+| Método | Descrição | Quem usa |
+|--------|-----------|----------|
+| **Containerfile** | Build direto com Python + FAISS | Recomendado para CI/CD |
+| **lightspeed-rag-tool** | Tool oficial da Red Hat | Quem tem acesso ao registry.redhat.io |
+
+Para mais detalhes:
+- [`byok/README.md`](byok/README.md) — instruções completas
+- [`docs/byok-guide.md`](docs/byok-guide.md) — guia detalhado
+
 ## Documentação importante
 
 - `docs/deploy-guide.md` - deploy completo do stack
 - `docs/mcp-auth.md` - autenticação e passthrough do token
+- `docs/byok-guide.md` - guia BYOK detalhado (build de imagem)
 - `docs/rhcl-mcp-server-runbook.md` - build, rollout, validação e troubleshooting do MCP RHCL
 - `rhcl-mcp-server/README.md` - resumo operacional do servidor customizado
+- `byok/README.md` - build e push da imagem BYOK
 
 ## Licença
 

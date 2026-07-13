@@ -1,147 +1,251 @@
-# Guia BYOK - Red Hat Connectivity Link
+# Guia BYOK — Build de Imagem para OpenShift Lightspeed
 
 ## Visão Geral
 
-BYOK (Bring Your Own Knowledge) permite adicionar conhecimento customizado ao Lightspeed Core Service usando RAG (Retrieval-Augmented Generation). Este guia cobre a criação de uma base de conhecimento sobre **Red Hat Connectivity Link**.
+BYOK (Bring Your Own Knowledge) permite adicionar **conhecimento
+customizado** ao OpenShift Lightspeed usando uma imagem de container
+com um Vector Database FAISS.
 
-## Arquitetura BYOK
+Este guia cobre **dois métodos**:
 
-O Lightspeed Core Service suporta dois modos de BYOK:
+1. **Build Direto (Containerfile)** — usando o `Containerfile` incluso
+2. **Ferramenta Oficial Red Hat** — usando `lightspeed-rag-tool`
 
-1. **Inline RAG**: Contexto é buscado automaticamente do vector store e injetado antes de cada query LLM
-2. **Tool RAG**: LLM pode chamar a tool `file_search` para buscar contexto sob demanda
+O conhecimento neste repositório é sobre **Red Hat Connectivity Link**
+(configuração de Gateway API, TLS, Auth, Rate Limiting, DNS Multicluster,
+Observabilidade).
 
-Ambos os modos usam:
-- **Vector Database**: FAISS (local) ou pgvector (PostgreSQL)
-- **Embedding Model**: Converte consultas e documentos em vetores para busca por similaridade
+## Arquitetura
 
-## Pré-requisitos BYOK
-
-- Lightspeed Core Service instalado
-- Python 3.12+ com `uv`
-- [rag-content tool](https://github.com/lightspeed-core/rag-content)
-- Modelo de embedding (default: `sentence-transformers/all-mpnet-base-v2`)
-
-## Conteúdo Preparado
-
-O diretório `byok/content/` contém documentação markdown do Red Hat Connectivity Link:
-
-| Arquivo | Conteúdo |
-|---------|----------|
-| 01-overview.md | Visão geral e conceitos |
-| 02-architecture.md | Arquitetura e componentes |
-| 03-installation.md | Instalação via OperatorHub |
-| 04-gateway-api.md | Gateway API (GatewayClass, Gateway, HTTPRoute) |
-| 05-tls-policies.md | Políticas TLS (TLSPolicy, cert-manager) |
-| 06-auth-policies.md | Autenticação e Autorização (AuthPolicy) |
-| 07-rate-limiting.md | Rate Limiting (RateLimitPolicy) |
-| 08-dns-multicluster.md | DNS Multicluster (DNSPolicy) |
-| 09-observability.md | Observabilidade (métricas, dashboards, alertas) |
-
-## Passo a Passo
-
-### 1. Indexar o Conteúdo
-
-```bash
-cd byok/scripts
-./index-content.sh ../content ./output
+```
+[Documentos Markdown]
+        ↓
+[Gerar Embeddings + FAISS Index]
+        ↓
+[Imagem Container (/rag/vector_db)]
+        ↓
+[Registry Acessível pelo Cluster]
+        ↓
+[OLSConfig → spec.ols.rag.image]
+        ↓
+[Lightspeed Operator carrega Vector DB]
+        ↓
+[LLM consulta RAG com seu conhecimento]
 ```
 
-Isso vai:
-1. Copiar os documentos markdown
-2. Baixar o modelo de embedding
-3. Indexar os documentos com `rag-content`
-4. Gerar o vector database FAISS
+O OpenShift Lightspeed suporta dois modos de RAG:
 
-### 2. Atualizar a Configuração
+- **Automático:** contexto é injetado automaticamente antes de cada query
+- **Tool RAG:** LLM pode buscar contexto sob demanda
 
-Após a indexação, atualize o `lightspeed-stack.yaml`:
+## Pré-requisitos
 
-```bash
-# O script mostra o vector_db_id gerado
-# Edite byok/lightspeed-stack.yaml e atualize:
-#   vector_db_id: <id-gerado>
-#   db_path: /path/to/output/faiss_store.db
-```
+- Cluster OpenShift 4.16+ com OpenShift Lightspeed 1.0+
+- Container tool (`podman` ou `docker`)
+- Acesso a um registry de container (interno do OCP ou externo)
+- (Método oficial) Acesso ao `registry.redhat.io` e `podman` com `/dev/fuse`
 
-### 3. Iniciar o Lightspeed Core Service
+## Método 1: Build Direto (Recomendado para este Repo)
 
-```bash
-# Com docker-compose
-docker-compose -f lightspeed-stack.yaml up -d
+Usa o `Containerfile` incluso que executa todo o pipeline de embedding
+e indexação em multi-stage build.
 
-# Ou com make
-make run
-```
-
-### 4. Verificar
+### 1. Build
 
 ```bash
-# Testar a query
-curl -X POST http://localhost:8080/v1/query \
-  -H "Content-Type: application/json" \
-  -d '{"query": "O que e o Red Hat Connectivity Link?"}'
+cd byok
+
+# Via Makefile
+make build
+
+# Ou manualmente
+podman build -t byok-rhcl:latest -f Containerfile .
 ```
+
+O processo:
+1. Instala dependências Python (sentence-transformers, FAISS)
+2. Baixa o modelo de embedding `all-mpnet-base-v2` (~1.2GB)
+3. Chunk os documentos markdown (1000 chars, overlap 200)
+4. Gera embeddings e constrói índice FAISS
+5. Empacota em imagem scratch em `/rag/vector_db/`
+
+### 2. Push para Registry
+
+```bash
+# Registry interno do OCP
+REGISTRY=$(oc get route default-route -n openshift-image-registry \
+  --template='{{ .spec.host }}')
+
+podman login -u kubeadmin -p "$(oc whoami -t)" "$REGISTRY"
+make push REGISTRY="$REGISTRY"
+
+# Ou registry externo
+make push REGISTRY=quay.io/meuuser
+```
+
+### 3. Configurar OLSConfig
+
+Adicione o bloco `rag` no OLSConfig:
+
+```yaml
+spec:
+  ols:
+    defaultModel: gpt-4o
+    defaultProvider: myOpenai
+    rag:
+      - image: image-registry.openshift-image-registry.svc:5000/openshift-lightspeed/byok-rhcl:latest
+        indexID: vector_db_index
+        indexPath: /rag/vector_db
+```
+
+```bash
+oc apply -f olsconfig.yaml
+```
+
+## Método 2: Ferramenta Oficial Red Hat
+
+Usa a imagem `lightspeed-rag-tool-rhel9` do `registry.redhat.io`.
+
+### 1. Login
+
+```bash
+podman login registry.redhat.io
+# Use suas credenciais do Red Hat SSO
+```
+
+### 2. Executar a Tool
+
+```bash
+cd byok
+
+# Via Makefile
+make tool-build
+
+# Ou manualmente
+podman run -it --rm --device=/dev/fuse \
+  -v $XDG_RUNTIME_DIR/containers/auth.json:/run/user/0/containers/auth.json:Z \
+  -v ./content:/markdown:Z \
+  -v ./vector_db/output:/output:Z \
+  registry.redhat.io/openshift-lightspeed-tech-preview/lightspeed-rag-tool-rhel9:latest
+```
+
+### 3. Carregar e Publicar a Imagem
+
+```bash
+# Carregar a imagem gerada
+podman load -i ./vector_db/output/byok-image.tar
+
+# Taguear
+podman tag localhost/byok-image:latest \
+  default-route-openshift-image-registry.apps.<cluster>.com/openshift-lightspeed/byok-rhcl:latest
+
+# Push
+podman push default-route-openshift-image-registry.apps.<cluster>.com/openshift-lightspeed/byok-rhcl:latest
+```
+
+### 4. Configurar OLSConfig (idem Método 1)
+
+## Script Automatizado
+
+O script `byok/scripts/build-byok.sh` unifica ambos os métodos:
+
+```bash
+# Build direto + push
+./scripts/build-byok.sh --push --registry quay.io/meuuser
+
+# Build via tool oficial
+./scripts/build-byok.sh --tool
+
+# Build tool + push
+./scripts/build-byok.sh --tool --push --registry quay.io/meuuser
+```
+
+## Verificação e Teste
+
+### 1. Verificar se o Vector DB foi carregado
+
+```bash
+oc logs -n openshift-lightspeed deployment/lightspeed-app-server \
+  | grep -i "rag\|byok\|vector"
+```
+
+### 2. Testar no Console OpenShift
+
+Abra o Console → OpenShift Lightspeed → faça perguntas como:
+
+- "O que é o Red Hat Connectivity Link?"
+- "Como configurar uma TLSPolicy?"
+- "Como criar um HTTPRoute com autenticação?"
+- "Como configurar rate limiting no Connectivity Link?"
+
+### 3. Validar Integração com MCP
+
+Se o MCP Server do RHCL também estiver configurado, pergunte algo
+que combine conhecimento BYOK + ação no cluster:
+
+- "Crie um GatewayClass e um HTTPRoute para o serviço meu-app"
 
 ## Personalização
 
-### Adicionar Mais Documentos
-
-Adicione arquivos `.md` em `byok/content/` e reindexe:
+### Adicionar Seu Próprio Conteúdo
 
 ```bash
-cp novo-documento.md byok/content/
-./index-content.sh byok/content ./output
+# Adicione arquivos .md
+echo "# Minha Documentação Interna" > byok/content/minha-doc.md
+
+# Reconstrua
+make build
+make push deploy
 ```
 
-### Custom Processor
+### Mudar Modelo de Embedding
 
-O arquivo `scripts/custom_processor.py` define metadados como URLs de referência. Edite conforme necessário para adicionar mais mapeamentos.
+```bash
+make build EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
+```
 
-## Integração com OpenShift Lightspeed
+### Atualização Automática
 
-O BYOK do Lightspeed Core é independente do OpenShift Lightspeed Operator. Para usar o conhecimento do Connectivity Link no OpenShift Lightspeed:
-
-### Opção 1: Lightspeed Core + OpenShift Lightspeed
-
-Configure o Lightspeed Core como LLM provider do OpenShift Lightspeed:
+Use **floating tags** (ex: `latest`) para que o OLS detecte
+atualizações automaticamente:
 
 ```yaml
-# OLSConfig
-spec:
-  llm:
-    providers:
-      - name: lightspeed-core
-        type: openai  # Lightspeed Core expoe API compatível com OpenAI
-        url: http://lightspeed-core-service:8080/v1
-        credentialsSecretRef:
-          name: lightspeed-core-credentials
-        models:
-          - name: default
+rag:
+  - image: .../byok-rhcl:latest   # floating tag!
 ```
 
-### Opção 2: Referência Manual
+## Troubleshooting
 
-Adicione o conteúdo como attachment nas queries do OpenShift Lightspeed:
+### Erro: "rag field not recognized"
+
+O campo `rag` é **Technology Preview**. Verifique:
+- OpenShift Lightspeed 1.0+
+- Indentação correta no OLSConfig
+- O field está em `spec.ols.rag` (não `spec.llm.rag`)
+
+### Erro: "ImagePullBackOff"
 
 ```bash
-curl -X POST https://${OLS_HOST}/v1/query \
-  -H "Authorization: Bearer ${TOKEN}" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": "Como configurar TLS no Connectivity Link?",
-    "attachments": [
-      {
-        "type": "text/markdown",
-        "content": "... conteudo do byok/content/ ..."
-      }
-    ]
-  }'
+oc describe pod -n openshift-lightspeed -l app=lightspeed-app-server \
+  | grep -A5 "Failed"
+
+# Verificar se o registry está acessível
+oc image info <pullspec>
 ```
 
-## Fontes de Dados
+### Erro: "vector_db_id not found"
 
-O conhecimento foi compilado das seguintes fontes oficiais:
-- https://docs.redhat.com/en/documentation/red_hat_connectivity_link/1.0/
-- https://kuadrant.io/
-- https://gateway-api.sigs.k8s.io/
+O `indexID` no OLSConfig precisa corresponder ao `vector_db_id`
+do metadata. Use `vector_db_index` (genérico) ou extraia do
+`metadata.json` gerado:
+
+```bash
+cat byok/vector_db/output/metadata.json | jq .vector_db_id
+```
+
+## Referências
+
+- [Red Hat Blog: Bring your own knowledge to OpenShift Lightspeed](https://www.redhat.com/en/blog/bring-your-own-knowledge-openshift-lightspeed)
+- [Red Hat Docs: Configure OpenShift Lightspeed 1.0](https://docs.redhat.com/en/documentation/red_hat_openshift_lightspeed/1.0/html/configure/)
+- [lightspeed-rag-content GitHub](https://github.com/openshift/lightspeed-rag-content)
+- [Red Hat Connectivity Link Docs](https://docs.redhat.com/en/documentation/red_hat_connectivity_link/1.0/)

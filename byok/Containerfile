@@ -1,0 +1,87 @@
+# Containerfile — BYOK Image Builder para OpenShift Lightspeed
+#
+# Build multi-estágio: gera o Vector Database FAISS a partir dos
+# documentos markdown e empacota numa imagem mínima consumível pelo
+# OpenShift Lightspeed via spec.ols.rag.
+#
+# Uso:
+#   podman build -t byok-rhcl:latest .
+#
+# Requerimentos de build:
+#   - Acesso à internet (download do modelo de embedding)
+#   - ~2GB de RAM
+#   - Podman 4+ ou Docker 20+
+#
+# A imagem resultante contém:
+#   /rag/vector_db/  → base vetorial FAISS pronta para consulta
+#
+# ─────────────────────────────────────────────────────────────
+# STAGE 1 — Builder: instala dependências e indexa o conteúdo
+# ─────────────────────────────────────────────────────────────
+FROM registry.access.redhat.com/ubi9/python-312:latest AS builder
+
+LABEL stage="byok-builder"
+
+USER 0
+RUN dnf install -y --nodocs sqlite git && \
+    dnf clean all && \
+    rm -rf /var/cache/dnf
+
+WORKDIR /build
+
+# Copia primeiro os requirements (caching de camada)
+COPY scripts/requirements-build.txt /tmp/requirements.txt
+
+# Instala as dependências Python
+RUN pip install --no-cache-dir \
+    sentence-transformers>=3.0.0 \
+    faiss-cpu>=1.8.0 \
+    numpy>=1.24.0 \
+    tiktoken>=0.7.0 \
+    langchain-text-splitters>=0.3.0
+
+# Copia conteúdo e scripts
+COPY content/ ./content/
+COPY scripts/ ./scripts/
+
+# Cria diretório de saída
+RUN mkdir -p ./vector_db/output
+
+# Gera o vector database embutindo o processamento diretamente
+# (sem depender do rag-content tool externo)
+COPY scripts/generate-vectordb.py .
+RUN python generate-vectordb.py \
+    --input-dir ./content/ \
+    --output-dir ./vector_db/output/ \
+    --embedding-model sentence-transformers/all-mpnet-base-v2 \
+    --dimension 768 \
+    --chunk-size 1000 \
+    --chunk-overlap 200
+
+# Verifica se o FAISS store foi gerado
+RUN test -f ./vector_db/output/faiss_store.db && \
+    echo "✓ Vector DB gerado com sucesso" || \
+    (echo "✗ Falha ao gerar Vector DB" && exit 1)
+
+# ─────────────────────────────────────────────────────────────
+# STAGE 2 — Imagem final: apenas o Vector DB
+# ─────────────────────────────────────────────────────────────
+FROM scratch
+
+LABEL \
+    com.redhat.component="byok-rhcl" \
+    description="BYOK Vector Database — Red Hat Connectivity Link para OpenShift Lightspeed" \
+    io.k8s.display-name="BYOK RHCL" \
+    io.openshift.tags="byok,lightspeed,rag,rhcl,connectivity-link" \
+    summary="Base vetorial FAISS com conhecimento do Red Hat Connectivity Link"
+
+# O Lightspeed Core espera o Vector DB em /rag/vector_db/
+COPY --from=builder /build/vector_db/output/ /rag/vector_db/
+
+# Metadados do índice (lidos pelo OLS na inicialização)
+COPY --from=builder /build/vector_db/output/metadata.json /rag/metadata.json
+
+# Ponto de montagem esperado pelo OpenShift Lightspeed
+VOLUME ["/rag/vector_db"]
+
+# Sem entrypoint — é uma imagem de dados (scratch)

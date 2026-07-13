@@ -1,0 +1,16 @@
+# olsconfig-patch.yaml — Patch para adicionar RAG BYOK ao OLSConfig
+#
+# Aplique com:
+#   oc patch olsconfig cluster -n openshift-lightspeed --type merge -p "$(cat olsconfig-patch.yaml)"
+#
+# Ou manualmente, edite o OLSConfig e adicione o bloco rag em spec.ols
+# (mesmo nível de defaultModel).
+#
+# A imagem deve estar em um registry acessível pelo cluster.
+
+spec:
+  ols:
+    rag:
+      - image: image-registry.openshift-image-registry.svc:5000/openshift-lightspeed/byok-rhcl:latest
+        indexID: vector_db_index
+        indexPath: /rag/vector_db
