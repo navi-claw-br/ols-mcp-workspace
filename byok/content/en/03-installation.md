@@ -1,16 +1,16 @@
-# Instalação do Red Hat Connectivity Link (RHCL)
+# Red Hat Connectivity Link (RHCL) Installation
 
-## Pré-requisitos
+## Prerequisites
 
-- Cluster OpenShift 4.14+
-- OpenShift Service Mesh 3.0 instalado
-- Cert-manager Operator instalado (para TLS automático)
-- Acesso cluster-admin
+- OpenShift 4.14+ cluster
+- OpenShift Service Mesh 3.0 installed
+- Cert-manager Operator installed (for automatic TLS)
+- Cluster-admin access
 - OpenShift CLI (oc)
 
-## Instalação via OperatorHub
+## Installation via OperatorHub
 
-### 1. Instalar o OpenShift Service Mesh 3.0
+### 1. Install OpenShift Service Mesh 3.0
 
 ```bash
 # Criar namespace
@@ -31,14 +31,14 @@ spec:
 EOF
 ```
 
-### 2. Instalar o Cert Manager
+### 2. Install Cert Manager
 
 ```bash
 # Instalar via OperatorHub
 oc apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.14.0/cert-manager.yaml
 ```
 
-### 3. Instalar o Connectivity Link Operator
+### 3. Install the Connectivity Link Operator
 
 ```bash
 # Criar namespace
@@ -59,7 +59,7 @@ spec:
 EOF
 ```
 
-### 4. Criar a instância do Connectivity Link
+### 4. Create the Connectivity Link instance
 
 ```bash
 cat <<EOF | oc apply -f -
@@ -75,7 +75,7 @@ spec:
 EOF
 ```
 
-## Verificação da Instalação
+## Verifying the Installation
 
 ```bash
 # Verificar pods
@@ -90,8 +90,8 @@ oc get crd | grep gateway.networking
 oc get gateway -A
 ```
 
-## Recursos Importantes
+## Important Resources
 
-- Documentação de instalação: https://docs.redhat.com/en/documentation/red_hat_connectivity_link/1.0/
+- Installation documentation: https://docs.redhat.com/en/documentation/red_hat_connectivity_link/1.0/
 - Kuadrant operator: https://github.com/kuadrant/kuadrant-operator
-- System requirements: OpenShift 4.14+, 16GB RAM por nó (recomendado)
+- System requirements: OpenShift 4.14+, 16GB RAM per node (recommended)

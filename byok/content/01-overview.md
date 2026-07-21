@@ -1,8 +1,8 @@
-# Red Hat Connectivity Link - Visão Geral
+# Red Hat Connectivity Link (RHCL) - Visão Geral
 
-## O que é o Red Hat Connectivity Link?
+## O que é o Red Hat Connectivity Link (RHCL)?
 
-O Red Hat Connectivity Link é uma solução modular e flexível para conectividade de aplicações, gerenciamento de políticas e gerenciamento de APIs em ambientes multicloud e hybrid cloud. Ele permite proteger, conectar e observar APIs, aplicações e infraestrutura.
+RHCL é a sigla de **Red Hat Connectivity Link**. O Red Hat Connectivity Link (RHCL) é uma solução modular e flexível para conectividade de aplicações, gerenciamento de políticas e gerenciamento de APIs em ambientes multicloud e hybrid cloud. Ele permite proteger, conectar e observar APIs, aplicações e infraestrutura. Ao longo desta documentação, os nomes "RHCL", "Connectivity Link" e "Red Hat Connectivity Link" referem-se ao mesmo produto.
 
 ## Base Community
 

@@ -1,143 +1,80 @@
 # BYOK — Bring Your Own Knowledge para OpenShift Lightspeed
 
-Este diretório contém tudo que você precisa para criar uma **imagem BYOK**
+Este diretório contém o conteúdo e a automação para criar uma **imagem BYOK**
 com documentação do **Red Hat Connectivity Link** e disponibilizá-la como
-conhecimento customizado no OpenShift Lightspeed.
+conhecimento customizado no OpenShift Lightspeed (OLS 1.0, Technology Preview).
+
+O fluxo segue a [documentação oficial da Red Hat][docs-byok]: a imagem é
+gerada pela ferramenta **`lightspeed-rag-tool`** — não há Containerfile
+próprio nem indexação manual. A tool lê os markdowns, constrói o vector
+database no formato que o OLS espera e empacota tudo num `byok-image.tar`.
+
+## Pré-requisitos
+
+- Acesso ao console do OpenShift com permissão de `cluster-admin` (ou
+  permissão para editar CRs cluster-scoped)
+- OpenShift Lightspeed Operator instalado e um provedor LLM configurado
+- Documentos em **Markdown** (somente extensão `.md`) — já estão em `content/`
+- `podman` com login no `registry.redhat.io` (para baixar a rag-tool)
+- Conta em um registry de container acessível pelo cluster (ex.: `quay.io`)
+
+```bash
+podman login registry.redhat.io
+podman login quay.io
+```
 
 ## Quick Start
 
 ```bash
-# 1. Build da imagem BYOK
+# 1. Gera a imagem BYOK (produz output/byok-image.tar)
 make build
 
-# 2. Push para o registry do cluster
-make push REGISTRY=default-route-openshift-image-registry.apps.<cluster>.com
+# 2. Carrega o tar, tagueia e envia para o registry
+make push REGISTRY=quay.io/<username>
 
-# 3. (Opcional) Atualizar OLSConfig
-make deploy
-
-# OU tudo em um comando:
-make all REGISTRY=<registry>
+# 3. Configura o OLSConfig do cluster
+make deploy REGISTRY=quay.io/<username>
 ```
 
-## O que é BYOK?
+## O que cada passo faz
 
-BYOK (Bring Your Own Knowledge) é uma funcionalidade (Technology Preview)
-do OpenShift Lightspeed que permite adicionar sua própria documentação
-como base de conhecimento para o LLM.
+### 1. `make build` — gera a imagem via rag-tool oficial
 
-O fluxo é:
-
-1. Escreva seus documentos em **Markdown**
-2. **Construa uma imagem de container** com o Vector Database FAISS
-3. **Publique** em um registry acessível pelo cluster
-4. **Configure** o OLSConfig com `spec.ols.rag.image`
-
-O Lightspeed Operator detecta a imagem, carrega o Vector DB e passa
-a responder perguntas com base no seu conhecimento proprietário.
-
-## Estrutura
-
-```
-byok/
-├── README.md                  ← Você está aqui
-├── Containerfile              ← Build da imagem BYOK (recomendado)
-├── Makefile                   ← Targets: build, push, deploy, all
-├── content/                   ← Documentos markdown do RHCL
-│   ├── 01-overview.md
-│   ├── 02-architecture.md
-│   ├── 03-installation.md
-│   ├── 04-gateway-api.md
-│   ├── 05-tls-policies.md
-│   ├── 06-auth-policies.md
-│   ├── 07-rate-limiting.md
-│   ├── 08-dns-multicluster.md
-│   ├── 09-observability.md
-│   └── 10-mcp-operations.md
-├── scripts/
-│   ├── build-byok.sh          ← Script wrapper (build + push)
-│   ├── generate-vectordb.py   ← Gera FAISS index do markdown
-│   ├── index-content.sh       ← Indexação via rag-content (legado)
-│   ├── custom_processor.py    ← Metadata processor (legado)
-│   └── requirements-build.txt ← Dependências Python do build
-└── lightspeed-stack.yaml      ← Config Lightspeed Core (legado)
-```
-
-## Como Funciona
-
-### Método 1: Build Direto (Containerfile) — Recomendado
-
-Usa o `Containerfile` incluso que faz **multi-stage build**:
-
-1. **Stage 1 (builder):** UBI9 + Python + sentence-transformers + FAISS
-   - Lê os markdowns de `content/`
-   - Chunk os documentos
-   - Gera embeddings com `all-mpnet-base-v2`
-   - Constrói índice FAISS
-2. **Stage 2 (scratch):** Imagem mínima com apenas o Vector DB em `/rag/vector_db/`
+Equivalente ao comando da documentação:
 
 ```bash
-# Via Makefile
-make build
-
-# Ou manualmente
-podman build -t byok-rhcl:latest -f Containerfile .
+podman run -it --rm --device=/dev/fuse \
+  -v $XDG_RUNTIME_DIR/containers/auth.json:/run/user/0/containers/auth.json:Z \
+  -v ./content:/markdown:Z \
+  -v ./output:/output:Z \
+  registry.redhat.io/openshift-lightspeed-tech-preview/lightspeed-rag-tool-rhel9:latest
 ```
 
-### Método 2: lightspeed-rag-tool Oficial (Red Hat)
+O resultado é `output/byok-image.tar`.
 
-Usa a imagem oficial da Red Hat que faz todo o processo e gera a imagem
-BYOK automaticamente via buildah interno.
+> **podman ou docker:** o Makefile detecta automaticamente qual ferramenta
+> está com o daemon/VM ativo (sobrescreva com `CONTAINER_TOOL=podman|docker`)
+> e roda a tool com `--platform linux/amd64` (ajuste via `PLATFORM=`).
+>
+> **docker no macOS:** o Docker Desktop guarda credenciais no keychain, não
+> no `config.json`. O target `gen-auth` (chamado automaticamente pelo build)
+> extrai a credencial do `registry.redhat.io` para um `.auth.json` plano
+> (gitignored) que é montado na tool. Requer `docker login registry.redhat.io`
+> feito previamente.
+
+### 2. `make push` — carrega e publica
+
+Equivalente a:
 
 ```bash
-# Login no registry.redhat.io
-podman login registry.redhat.io
-
-# Executar a tool
-make tool-build
-
-# Ou via script
-./scripts/build-byok.sh --tool --push --registry quay.io/meuuser
+podman load -i output/byok-image.tar          # carrega como localhost/byok-image:latest
+podman tag localhost/byok-image:latest quay.io/<username>/byok-rhcl:latest
+podman push quay.io/<username>/byok-rhcl:latest
 ```
 
-**Requisitos:**
-- Acesso ao `registry.redhat.io` (Red Hat SSO)
-- `podman` instalado
-- Dispositivo `/dev/fuse` disponível
+### 3. `make deploy` — configura o OLSConfig
 
-## Push da Imagem
-
-### Para o Registry Interno do OpenShift
-
-```bash
-# 1. Expor o registry (se ainda não estiver exposto)
-oc patch configs.imageregistry.operator.openshift.io/cluster \
-  --type merge -p '{"spec":{"defaultRoute":true}}'
-
-# 2. Obter a URL do registry
-REGISTRY_URL=$(oc get route default-route -n openshift-image-registry \
-  --template='{{ .spec.host }}')
-
-# 3. Login
-podman login -u kubeadmin -p "$(oc whoami -t)" "$REGISTRY_URL"
-
-# 4. Push
-make push REGISTRY="$REGISTRY_URL" NAMESPACE=openshift-lightspeed
-```
-
-### Para Registry Externo (Quay, Docker Hub, etc.)
-
-```bash
-podman login quay.io
-make push REGISTRY=quay.io/meuuser NAMESPACE=openshift-lightspeed
-
-# Ou com tag específica
-make push REGISTRY=quay.io/meuuser IMAGE_TAG=v1.0
-```
-
-## Configuração no OLSConfig
-
-Após publicar a imagem, configure o OpenShift Lightspeed para usá-la:
+Adiciona a imagem em `spec.ols.rag` (pode-se listar várias imagens BYOK):
 
 ```yaml
 apiVersion: ols.openshift.io/v1alpha1
@@ -145,116 +82,75 @@ kind: OLSConfig
 metadata:
   name: cluster
 spec:
-  llm:
-    providers:
-      - name: myOpenai
-        type: openai
-        credentialsSecretRef:
-          name: openai-api-keys
-        url: "https://api.openai.com/v1"
-        models:
-          - name: gpt-4o
   ols:
-    defaultModel: gpt-4o
-    defaultProvider: myOpenai
     rag:
-      - image: image-registry.openshift-image-registry.svc:5000/openshift-lightspeed/byok-rhcl:latest
-        indexID: vector_db_index
-        indexPath: /rag/vector_db
+      - image: quay.io/<username>/byok-rhcl:latest
 ```
 
-Aplicar com:
+Alternativamente, aplique o patch manualmente:
 
 ```bash
-oc apply -f olsconfig.yaml
-# OU via patch:
-make deploy
+oc patch olsconfig cluster --type merge --patch-file olsconfig-patch.yaml
 ```
 
-O Lightspeed Operator reinicia os pods do `lightspeed-app-server`.
+O Lightspeed Operator reinicia os pods do `lightspeed-app-server`
+automaticamente.
+
+## Opções adicionais
+
+### Usar somente o conhecimento BYOK
+
+Para o serviço responder **apenas** com base nas suas imagens BYOK, sem a
+base padrão de documentação do OpenShift:
+
+```yaml
+spec:
+  ols:
+    byokRAGOnly: true
+```
+
+### Registry privado
+
+```yaml
+spec:
+  ols:
+    imagePullSecrets:
+      - name: <my_pull_secret>
+```
 
 ## Verificação
 
 ```bash
-# Verificar se os pods reiniciaram
+# Pods devem reiniciar após o deploy
 oc get pods -n openshift-lightspeed -w
 
-# Testar uma pergunta que use o conhecimento do Connectivity Link
-# Pelo próprio console OpenShift, pergunte algo como:
+# No console do OpenShift, pergunte algo que use o conhecimento do RHCL:
 # "Como configurar uma TLSPolicy no Red Hat Connectivity Link?"
 ```
 
-## Personalização
-
-### Adicionar Mais Conteúdo
+## Atualizar o conteúdo
 
 ```bash
-# 1. Adicione arquivos .md em content/
-cp minha-doc.md byok/content/
-
-# 2. Reconstrua a imagem
-make build
-
-# 3. Push e deploy
-make push deploy
+# 1. Edite/adicione arquivos .md em content/
+# 2. Regenere e republique:
+make clean build push deploy REGISTRY=quay.io/<username>
 ```
 
-### Usar Outro Modelo de Embedding
+## Estrutura
 
-```bash
-make build EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
 ```
-
-**Nota:** A dimensão do embedding muda conforme o modelo. O `generate-vectordb.py`
-detecta automaticamente a dimensão correta.
-
-### Atualização Automática com Floating Tags
-
-O OpenShift Lightspeed suporta atualização automática de imagens BYOK que
-usam **floating tags** (ex: `latest`). Se a tag apontar para uma imagem
-diferente, o Lightspeed detecta e atualiza o Vector DB automaticamente.
-
-```yaml
-rag:
-  - image: registry.example.com/openshift-lightspeed/byok-rhcl:latest  # floating tag!
-    indexID: vector_db_index
-    indexPath: /rag/vector_db
+byok/
+├── README.md              ← Você está aqui
+├── Makefile               ← build / push / deploy (fluxo oficial)
+├── olsconfig-patch.yaml   ← Patch de exemplo para o OLSConfig
+├── content/               ← Documentos markdown do RHCL (input da rag-tool)
+└── output/                ← byok-image.tar gerado (gitignored)
 ```
-
-## Troubleshooting
-
-### OLSConfig não aceita o campo `rag`
-
-Verifique se o OpenShift Lightspeed Operator é **1.0+** e se o campo
-`rag` está na indentação correta (mesmo nível de `defaultModel`):
-
-```yaml
-spec:
-  ols:              # ← nível spec.ols
-    defaultModel: ...
-    defaultProvider: ...
-    rag:            # ← MESMO nível de defaultModel
-      - image: ...
-```
-
-### Pods do Lightspeed não reiniciam
-
-```bash
-oc describe olsconfig cluster -n openshift-lightspeed
-oc logs -n openshift-lightspeed -l app=lightspeed-operator
-```
-
-### Imagem não encontrada pelo cluster
-
-Verifique se:
-
-- O registry é acessível pelo cluster
-- O `imagePullPolicy` padrão do OLS funciona com a tag usada
-- A imagem existe no registry: `oc image info <pullspec>`
 
 ## Referências
 
+- [Providing custom knowledge to the LLM — OLS 1.0 Configure][docs-byok]
 - [Blog: Bring your own knowledge to OpenShift Lightspeed](https://www.redhat.com/en/blog/bring-your-own-knowledge-openshift-lightspeed)
-- [Red Hat OpenShift Lightspeed 1.0 — Configure](https://docs.redhat.com/en/documentation/red_hat_openshift_lightspeed/1.0/html/configure/)
 - [Red Hat Connectivity Link Documentation](https://docs.redhat.com/en/documentation/red_hat_connectivity_link/1.0/)
-- [lightspeed-rag-content (GitHub)](https://github.com/openshift/lightspeed-rag-content)
+
+[docs-byok]: https://docs.redhat.com/en/documentation/red_hat_openshift_lightspeed/1.0/html-single/configure/index#providing-custom-knowledge-to-the-llm_ols-configuring-openshift-lightspeed

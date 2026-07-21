@@ -1,10 +1,10 @@
-# Políticas de Autenticação e Autorização (AuthPolicy) no Red Hat Connectivity Link (RHCL)
+# Authentication and Authorization Policies (AuthPolicy) in Red Hat Connectivity Link (RHCL)
 
-## Visão Geral
+## Overview
 
-A AuthPolicy permite configurar autenticação e autorização para as requisições que chegam aos gateways gerenciados pelo Connectivity Link.
+The AuthPolicy allows you to configure authentication and authorization for requests arriving at gateways managed by Connectivity Link.
 
-## Provedores de Autenticação Suportados
+## Supported Authentication Providers
 
 ### 1. JWT / OIDC
 
@@ -54,7 +54,7 @@ spec:
           allCredentials: true
 ```
 
-### 3. Múltiplos Provedores
+### 3. Multiple Providers
 
 ```yaml
 apiVersion: kuadrant.io/v1alpha1
@@ -84,7 +84,7 @@ spec:
               value: admin
 ```
 
-## Autorização Baseada em Claims
+## Claims-Based Authorization
 
 ```yaml
 apiVersion: kuadrant.io/v1alpha1
@@ -111,9 +111,9 @@ spec:
               value: "admin"
 ```
 
-## Padrões de Uso
+## Usage Patterns
 
-### Rota Pública + Rota Protegida
+### Public Route + Protected Route
 
 ```yaml
 # Rota pública
@@ -152,7 +152,7 @@ spec:
           port: 8080
 ```
 
-## Debug e Troubleshooting
+## Debugging and Troubleshooting
 
 ```bash
 # Verificar status da AuthPolicy

@@ -1,4 +1,4 @@
-# Arquitetura do Red Hat Connectivity Link
+# Arquitetura do Red Hat Connectivity Link (RHCL)
 
 ## Componentes Principais
 
@@ -22,7 +22,7 @@ O Connectivity Link estende o Gateway API com políticas customizadas:
 
 **TLSPolicy**
 - Gerencia certificados TLS para os gateways
-- Suporte a证书 automático via Let's Encrypt / ACME
+- Suporte a certificado automático via Let's Encrypt / ACME
 - Suporte a certificados customizados
 
 **AuthPolicy**

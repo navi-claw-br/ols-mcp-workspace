@@ -1,13 +1,13 @@
-# Gateway API no Red Hat Connectivity Link (RHCL)
+# Gateway API in Red Hat Connectivity Link (RHCL)
 
-## Visão Geral
+## Overview
 
-O Connectivity Link usa o Kubernetes Gateway API como padrão para configurar ingress gateways. Gateway API é um padrão do CNCF que substitui o Ingress tradicional com recursos mais expressivos e extensíveis.
+Connectivity Link uses the Kubernetes Gateway API as the standard for configuring ingress gateways. Gateway API is a CNCF standard that replaces the traditional Ingress with more expressive and extensible resources.
 
-## Conceitos Gateway API
+## Gateway API Concepts
 
 ### GatewayClass
-Recurso cluster-scoped que define um tipo de gateway. Exemplo: `istio`, `nginx`.
+Cluster-scoped resource that defines a type of gateway. Example: `istio`, `nginx`.
 
 ```yaml
 apiVersion: gateway.networking.k8s.io/v1
@@ -19,7 +19,7 @@ spec:
 ```
 
 ### Gateway
-Define o ponto de entrada de tráfego.
+Defines the traffic entry point.
 
 ```yaml
 apiVersion: gateway.networking.k8s.io/v1
@@ -41,7 +41,7 @@ spec:
 ```
 
 ### HTTPRoute
-Define regras de roteamento para tráfego HTTP/HTTPS.
+Defines routing rules for HTTP/HTTPS traffic.
 
 ```yaml
 apiVersion: gateway.networking.k8s.io/v1
@@ -64,15 +64,15 @@ spec:
           port: 8080
 ```
 
-Para exposicao externa via RHCL:
+For external exposure via RHCL:
 
-- `hostnames` nao deve ficar vazio
-- a rota deve apontar para um `Gateway` valido
-- o hostname deve ser um FQDN que o time queira publicar
+- `hostnames` must not be empty
+- the route must point to a valid `Gateway`
+- the hostname must be an FQDN that the team wants to publish
 
-## Políticas Gateway API no Connectivity Link
+## Gateway API Policies in Connectivity Link
 
-### TLSPolicy - Gerenciamento de Certificados
+### TLSPolicy - Certificate Management
 
 ```yaml
 apiVersion: kuadrant.io/v1
@@ -90,7 +90,7 @@ spec:
     name: letsencrypt-prod
 ```
 
-### AuthPolicy - Autenticação e Autorização
+### AuthPolicy - Authentication and Authorization
 
 ```yaml
 apiVersion: kuadrant.io/v1
@@ -132,7 +132,7 @@ spec:
         - request.path
 ```
 
-### DNSPolicy - DNS Multicluster
+### DNSPolicy - Multicluster DNS
 
 ```yaml
 apiVersion: kuadrant.io/v1
@@ -152,17 +152,17 @@ spec:
     defaultGeo: us-east
 ```
 
-Importante:
+Important:
 
-- `DNSPolicy` e associada ao `Gateway`
-- os FQDNs publicados vem dos `hostnames` das `HTTPRoutes` anexadas a esse `Gateway`
-- se nao houver `hostname` na `HTTPRoute`, nao ha FQDN especifico para publicar
+- `DNSPolicy` is attached to the `Gateway`
+- the published FQDNs come from the `hostnames` of the `HTTPRoutes` attached to that `Gateway`
+- if there is no `hostname` on the `HTTPRoute`, there is no specific FQDN to publish
 
-## Boas Práticas
+## Best Practices
 
-1. Sempre use HTTPS com certificados TLS
-2. Configure rate limiting para proteger seus backends
-3. Use autenticação JWT para APIs expostas externamente
-4. Configure health checks no DNSPolicy para remediação automática
-5. Separe gateways por ambiente (dev, staging, prod)
-6. Ao expor uma API, garanta `hostname` na `HTTPRoute` e `DNSPolicy` no `Gateway`
+1. Always use HTTPS with TLS certificates
+2. Configure rate limiting to protect your backends
+3. Use JWT authentication for externally exposed APIs
+4. Configure health checks in the DNSPolicy for automatic remediation
+5. Separate gateways per environment (dev, staging, prod)
+6. When exposing an API, make sure there is a `hostname` on the `HTTPRoute` and a `DNSPolicy` on the `Gateway`

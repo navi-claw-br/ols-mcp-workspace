@@ -1,155 +1,146 @@
-# Makefile — BYOK Image Builder para OpenShift Lightspeed
+# Makefile — BYOK (Bring Your Own Knowledge) para OpenShift Lightspeed
 #
-# Targets principais:
-#   build              Constrói a imagem BYOK localmente
-#   push               Envia a imagem para o registry
-#   deploy             Atualiza o OLSConfig no cluster
-#   all                build + push
-#   tool-build         Usa o lightspeed-rag-tool oficial da Red Hat
-#   clean              Remove artefatos locais
+# Segue o fluxo oficial documentado pela Red Hat (OLS 1.0, Technology Preview):
+# a imagem BYOK é gerada pela ferramenta lightspeed-rag-tool — NÃO há
+# Containerfile próprio. A tool lê os markdowns, gera o vector database
+# e produz um byok-image.tar pronto para carregar e publicar.
 #
-# Variáveis (sobrescreva via env ou make VAR=valor):
+# Fluxo:
+#   1. make build    Roda a lightspeed-rag-tool → output/byok-image.tar
+#   2. make push     Carrega o tar, tagueia e envia para o registry
+#   3. make deploy   Adiciona a imagem em spec.ols.rag do OLSConfig
 #
-#   IMAGE_NAME         Nome da imagem (default: byok-rhcl)
-#   IMAGE_TAG          Tag da imagem (default: latest)
-#   REGISTRY           Registry destino (default: image-registry.openshift-image-registry.svc:5000)
-#   REGISTRY_EXT       Registry externo acessível pelo cluster (default: usa o REGISTRY)
-#   NAMESPACE          Namespace do OLS (default: openshift-lightspeed)
-#   CONTENT_DIR        Diretório com documentos markdown (default: content)
-#   OUTPUT_DIR         Diretório de saída do vector DB (default: ./vector_db/output)
-#   EMBEDDING_MODEL    Modelo de embedding (default: sentence-transformers/all-mpnet-base-v2)
+# Pré-requisitos:
+#   - Login no registry.redhat.io (para baixar a rag-tool)
+#   - Login no registry destino (para o push)
+#   - Conteúdo em content/ (somente arquivos .md)
 #
+# Funciona com podman OU docker — detecta automaticamente qual está ativo
+# (sobrescreva com CONTAINER_TOOL=podman|docker).
+#
+# Docs: https://docs.redhat.com/en/documentation/red_hat_openshift_lightspeed/1.0/html-single/configure/index#providing-custom-knowledge-to-the-llm_ols-configuring-openshift-lightspeed
 
 # ─── Configurações ──────────────────────────────────────────────────────────
-IMAGE_NAME        ?= byok-rhcl
-IMAGE_TAG         ?= latest
-REGISTRY          ?= image-registry.openshift-image-registry.svc:5000
-REGISTRY_EXT      ?= $(REGISTRY)
-NAMESPACE         ?= openshift-lightspeed
-CONTENT_DIR       ?= content
-OUTPUT_DIR        ?= ./vector_db/output
-EMBEDDING_MODEL   ?= sentence-transformers/all-mpnet-base-v2
+IMAGE_NAME     ?= byok-rhcl
+IMAGE_TAG      ?= latest
+REGISTRY       ?= quay.io/<username>
+CONTENT_DIR    ?= content
+OUTPUT_DIR     ?= output
+PLATFORM       ?= linux/amd64
 
-OCTL             := $(shell command -v oc 2>/dev/null || echo "oc")
-PODMAN           := $(shell command -v podman 2>/dev/null || echo "docker")
+RAG_TOOL_IMAGE ?= registry.redhat.io/openshift-lightspeed-tech-preview/lightspeed-rag-tool-rhel9:latest
+
+# Mesmos parâmetros que a rag-tool usa internamente (Containerfile.output)
+UBI_BASE_IMAGE  ?= registry.redhat.io/rhai/base-image-cpu-rhel9:3.3
+VECTOR_DB_INDEX ?= vector_db_index
+EMBED_MODEL     ?= sentence-transformers/all-mpnet-base-v2
+
+# Nome fixo dos artefatos gerados pela rag-tool
+TAR_FILE       := $(OUTPUT_DIR)/byok-image.tar
+LOADED_IMAGE   := localhost/byok-image:latest
+PULLSPEC       := $(REGISTRY)/$(IMAGE_NAME):$(IMAGE_TAG)
+
+OC             := $(shell command -v oc 2>/dev/null || echo oc)
+
+# Usa a primeira ferramenta com daemon/VM ATIVA (binário existir não basta)
+CONTAINER_TOOL ?= $(shell if command -v podman >/dev/null 2>&1 && podman info >/dev/null 2>&1; then echo podman; else echo docker; fi)
+
+# Auth para o fluxo podman (montado dentro da rag-tool).
+# No fluxo docker os pulls são feitos pelo docker do host (keychain nativo).
+# Linux usa XDG_RUNTIME_DIR; macOS usa ~/.config
+AUTH_JSON  ?= $(shell if [ -n "$$XDG_RUNTIME_DIR" ] && [ -f "$$XDG_RUNTIME_DIR/containers/auth.json" ]; then echo "$$XDG_RUNTIME_DIR/containers/auth.json"; else echo "$$HOME/.config/containers/auth.json"; fi)
 
 # ─── Help ───────────────────────────────────────────────────────────────────
 .PHONY: help
 help:
-	@echo "BYOK Image Builder — OpenShift Lightspeed"
+	@echo "BYOK — OpenShift Lightspeed (fluxo oficial lightspeed-rag-tool)"
 	@echo ""
 	@echo "Targets:"
-	@echo "  build              Constrói a imagem BYOK (Containerfile)"
-	@echo "  push               Push para o registry interno/externo"
-	@echo "  deploy             Atualiza OLSConfig com a imagem BYOK"
-	@echo "  all                build + push"
-	@echo "  tool-build         Usa lightspeed-rag-tool oficial da Red Hat"
-	@echo "  clean              Remove vetor_db/ local"
+	@echo "  build     Roda a rag-tool oficial e gera $(TAR_FILE)"
+	@echo "  push      Carrega o tar, tagueia e envia para $(PULLSPEC)"
+	@echo "  deploy    Configura spec.ols.rag no OLSConfig 'cluster'"
+	@echo "  all       build + push"
+	@echo "  clean     Remove $(OUTPUT_DIR)/"
 	@echo ""
-	@echo "Variáveis:"
-	@echo "  IMAGE_NAME=$(IMAGE_NAME)  IMAGE_TAG=$(IMAGE_TAG)"
-	@echo "  REGISTRY=$(REGISTRY)      NAMESPACE=$(NAMESPACE)"
-	@echo ""
+	@echo "Variáveis: REGISTRY=$(REGISTRY) IMAGE_NAME=$(IMAGE_NAME) IMAGE_TAG=$(IMAGE_TAG)"
+	@echo "           CONTAINER_TOOL=$(CONTAINER_TOOL) PLATFORM=$(PLATFORM)"
 
 # ─── Build ──────────────────────────────────────────────────────────────────
+# podman: fluxo oficial da documentação — a rag-tool roda buildah interno e
+#         produz output/byok-image.tar.
+# docker: o buildah interno quebra (reexec sob emulação qemu no Mac ARM e
+#         overlay-sobre-overlayfs). Replicamos o Containerfile.output da
+#         própria tool em dois passos equivalentes: (1) docker run do
+#         generate_embeddings_tool.py; (2) docker build só com COPY.
 .PHONY: build
+ifeq ($(CONTAINER_TOOL),docker)
 build:
-	@echo "=== Construindo imagem BYOK: $(IMAGE_NAME):$(IMAGE_TAG) ==="
-	$(PODMAN) build \
-		-t $(IMAGE_NAME):$(IMAGE_TAG) \
-		--build-arg EMBEDDING_MODEL=$(EMBEDDING_MODEL) \
-		-f Containerfile .
-	@echo ""
-	@echo "✓ Imagem criada: $(IMAGE_NAME):$(IMAGE_TAG)"
-	@echo "  Para ver: $(PODMAN) images $(IMAGE_NAME)"
-	@echo ""
-	@echo "Próximo passo: make push REGISTRY=<seu-registry>"
-
-# ─── Push ───────────────────────────────────────────────────────────────────
-.PHONY: push
-push: PULLSPEC := $(REGISTRY)/$(NAMESPACE)/$(IMAGE_NAME):$(IMAGE_TAG)
-push:
-	@echo "=== Pushendo para: $(PULLSPEC) ==="
-	$(PODMAN) tag $(IMAGE_NAME):$(IMAGE_TAG) $(PULLSPEC)
-	$(PODMAN) push $(PULLSPEC)
-	@echo "✓ Imagem enviada: $(PULLSPEC)"
-
-# ─── Push (registry externo) ────────────────────────────────────────────────
-.PHONY: push-external
-push-external: PULLSPEC := $(REGISTRY_EXT)/$(NAMESPACE)/$(IMAGE_NAME):$(IMAGE_TAG)
-push-external:
-	@echo "=== Pushendo para registry externo: $(PULLSPEC) ==="
-	$(PODMAN) tag $(IMAGE_NAME):$(IMAGE_TAG) $(PULLSPEC)
-	$(PODMAN) push $(PULLSPEC)
-	@echo "✓ Imagem enviada: $(PULLSPEC)"
-
-# ─── Deploy (OLSConfig) ──────────────────────────────────────────────────
-.PHONY: deploy
-deploy: PULLSPEC := $(REGISTRY)/$(NAMESPACE)/$(IMAGE_NAME):$(IMAGE_TAG)
-deploy:
-	@echo "=== Configurando OLSConfig com BYOK image ==="
-	@if ! $(OCTL) get olsconfig cluster -n $(NAMESPACE) &>/dev/null; then \
-		echo "ERRO: OLSConfig 'cluster' não encontrado. Crie-o primeiro."; \
+	@echo "=== Gerando imagem BYOK (docker, replicando o Containerfile.output da rag-tool) ==="
+	rm -rf $(OUTPUT_DIR)/vector_db
+	mkdir -p $(OUTPUT_DIR)/vector_db
+	docker run $(shell [ -t 0 ] && echo -it) --rm --platform $(PLATFORM) \
+		-v $(CURDIR)/$(CONTENT_DIR):/markdown \
+		-v $(CURDIR)/$(OUTPUT_DIR)/vector_db:/workdir/vector_db \
+		--entrypoint python3.12 $(RAG_TOOL_IMAGE) \
+		generate_embeddings_tool.py -i /markdown -emd embeddings_model \
+		-emn $(EMBED_MODEL) -o vector_db -id $(VECTOR_DB_INDEX)
+	printf 'FROM %s\nCOPY vector_db /rag/vector_db\n' "$(UBI_BASE_IMAGE)" > $(OUTPUT_DIR)/Containerfile.byok
+	docker build --platform $(PLATFORM) -f $(OUTPUT_DIR)/Containerfile.byok -t $(LOADED_IMAGE) $(OUTPUT_DIR)
+	@echo "✓ Imagem gerada: $(LOADED_IMAGE)"
+else
+build:
+	@echo "=== Gerando imagem BYOK via lightspeed-rag-tool (podman, fluxo oficial) ==="
+	@if [ ! -f "$(AUTH_JSON)" ]; then \
+		echo "ERRO: $(AUTH_JSON) não encontrado."; \
+		echo "Faça login primeiro: $(CONTAINER_TOOL) login registry.redhat.io"; \
 		exit 1; \
 	fi
-	$(OCTL) patch olsconfig cluster -n $(NAMESPACE) --type merge -p \
-		'{"spec":{"ols":{"rag":[{"image":"$(PULLSPEC)","indexID":"byok-rhcl","indexPath":"/rag/vector_db"}]}}}'
-	@echo "✓ OLSConfig atualizado — pods do Lightspeed serão reiniciados."
+	mkdir -p $(OUTPUT_DIR)
+	$(CONTAINER_TOOL) run $(shell [ -t 0 ] && echo -it) --rm --device /dev/fuse \
+		-v $(AUTH_JSON):/run/user/0/containers/auth.json:Z \
+		-v $(CURDIR)/$(CONTENT_DIR):/markdown:Z \
+		-v $(CURDIR)/$(OUTPUT_DIR):/output:Z \
+		$(RAG_TOOL_IMAGE)
+	@test -f $(TAR_FILE) || { echo "ERRO: $(TAR_FILE) não foi gerado."; ls -la $(OUTPUT_DIR)/; exit 1; }
+	$(CONTAINER_TOOL) load -i $(TAR_FILE)
+	@echo "✓ Gerado: $(TAR_FILE) (carregado como $(LOADED_IMAGE))"
+endif
 
-# ─── All (build + push) ─────────────────────────────────────────────────────
+# ─── Push (tag + push) ──────────────────────────────────────────────────────
+.PHONY: push
+push:
+	@$(CONTAINER_TOOL) image inspect $(LOADED_IMAGE) >/dev/null 2>&1 \
+		|| { echo "ERRO: $(LOADED_IMAGE) não existe. Rode 'make build' antes."; exit 1; }
+	$(CONTAINER_TOOL) tag $(LOADED_IMAGE) $(PULLSPEC)
+	$(CONTAINER_TOOL) push $(PULLSPEC)
+	@echo "✓ Imagem publicada: $(PULLSPEC)"
+
+# ─── Deploy (OLSConfig) ─────────────────────────────────────────────────────
+.PHONY: deploy
+deploy:
+	@echo "=== Adicionando RAG BYOK ao OLSConfig ==="
+	@$(OC) get olsconfig cluster >/dev/null || { echo "ERRO: OLSConfig 'cluster' não encontrado."; exit 1; }
+	$(OC) patch olsconfig cluster --type merge -p \
+		'{"spec":{"ols":{"rag":[{"image":"$(PULLSPEC)"}]}}}'
+	@echo "✓ OLSConfig atualizado — o operator reinicia os pods do Lightspeed."
+
+# ─── All ────────────────────────────────────────────────────────────────────
 .PHONY: all
 all: build push
-	@echo "✓ Build + push concluídos!"
-
-# ─── Tool Build (via lightspeed-rag-tool oficial) ───────────────────────────
-.PHONY: tool-build
-tool-build: TAR_FILE := ./byok-image.tar
-tool-build: LOADED_IMAGE := localhost/byok-image:latest
-tool-build:
-	@echo "=== Usando lightspeed-rag-tool oficial da Red Hat ==="
-	@echo ""
-	@echo "Requer:"
-	@echo "  - Acesso ao registry.redhat.io (oc registry login)"
-	@echo "  - Podman instalado"
-	@echo ""
-	@echo "Step 1: Executando a tool..."
-	mkdir -p $(OUTPUT_DIR)
-	$(PODMAN) run -it --rm --device=/dev/fuse \
-		-v $$XDG_RUNTIME_DIR/containers/auth.json:/run/user/0/containers/auth.json:Z \
-		-v $(PWD)/$(CONTENT_DIR):/markdown:Z \
-		-v $(PWD)/$(OUTPUT_DIR):/output:Z \
-		registry.redhat.io/openshift-lightspeed-tech-preview/lightspeed-rag-tool-rhel9:latest
-	@echo ""
-	@echo "Step 2: Carregando a imagem gerada..."
-	$(PODMAN) load -i $(OUTPUT_DIR)/byok-image.tar
-	@echo ""
-	@echo "Step 3: Tagueando e pushendo..."
-	$(PODMAN) tag $(LOADED_IMAGE) $(REGISTRY)/$(NAMESPACE)/$(IMAGE_NAME):$(IMAGE_TAG)
-	$(PODMAN) push $(REGISTRY)/$(NAMESPACE)/$(IMAGE_NAME):$(IMAGE_TAG)
-	@echo ""
-	@echo "✓ Imagem BYOK criada via tool oficial!"
-	@echo "  $(REGISTRY)/$(NAMESPACE)/$(IMAGE_NAME):$(IMAGE_TAG)"
-	@echo ""
-	@echo "Configure no OLSConfig:"
-	@echo '  spec.ols.rag:'
-	@echo '    - image: $(REGISTRY)/$(NAMESPACE)/$(IMAGE_NAME):$(IMAGE_TAG)'
-	@echo '      indexID: vector_db_index'
-	@echo '      indexPath: /rag/vector_db'
 
 # ─── Clean ──────────────────────────────────────────────────────────────────
 .PHONY: clean
 clean:
-	rm -rf ./vector_db/
-	@echo "✓ Artefatos removidos (vector_db/)"
+	rm -rf $(OUTPUT_DIR)/ .auth.json
+	@echo "✓ $(OUTPUT_DIR)/ e .auth.json removidos"
 
 # ─── Info ───────────────────────────────────────────────────────────────────
 .PHONY: info
 info:
-	@echo "Configuração atual:"
-	@echo "  Image:    $(IMAGE_NAME):$(IMAGE_TAG)"
-	@echo "  Registry: $(REGISTRY)"
-	@echo "  Ns:       $(NAMESPACE)"
-	@echo "  Content:  $(CONTENT_DIR)/"
-	@echo "  Model:    $(EMBEDDING_MODEL)"
-	@echo "  Container:$(PODMAN)"
-	@echo "  OLS CLI:  $(OCTL)"
+	@echo "Tool:      $(CONTAINER_TOOL)"
+	@echo "Platform:  $(PLATFORM)"
+	@echo "Image:     $(PULLSPEC)"
+	@echo "Rag tool:  $(RAG_TOOL_IMAGE)"
+	@echo "Content:   $(CONTENT_DIR)/"
+	@echo "Output:    $(OUTPUT_DIR)/"
+	@echo "auth.json: $(AUTH_JSON)"

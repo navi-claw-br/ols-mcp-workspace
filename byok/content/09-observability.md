@@ -1,4 +1,4 @@
-# Observabilidade no Red Hat Connectivity Link
+# Observabilidade no Red Hat Connectivity Link (RHCL)
 
 ## Visão Geral
 

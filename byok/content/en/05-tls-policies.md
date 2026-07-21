@@ -1,12 +1,12 @@
-# Políticas TLS no Red Hat Connectivity Link (RHCL)
+# TLS Policies in Red Hat Connectivity Link (RHCL)
 
 ## TLSPolicy
 
-A TLSPolicy gerencia certificados TLS para os gateways, automatizando a emissão, renovação e configuração de certificados.
+The TLSPolicy manages TLS certificates for the gateways, automating certificate issuance, renewal, and configuration.
 
-## Tipos de Certificado Suportados
+## Supported Certificate Types
 
-### 1. Certificados Customizados (manual)
+### 1. Custom Certificates (manual)
 
 ```yaml
 apiVersion: kuadrant.io/v1alpha1
@@ -24,9 +24,9 @@ spec:
     name: ca-issuer
 ```
 
-### 2. Certificados Automáticos via ACME (Let's Encrypt)
+### 2. Automatic Certificates via ACME (Let's Encrypt)
 
-Pré-requisito: cert-manager Operator instalado.
+Prerequisite: cert-manager Operator installed.
 
 ```yaml
 # ClusterIssuer para Let's Encrypt
@@ -63,7 +63,7 @@ spec:
     name: letsencrypt-prod
 ```
 
-## Configuração TLS no Gateway
+## TLS Configuration on the Gateway
 
 ```yaml
 apiVersion: gateway.networking.k8s.io/v1
@@ -83,13 +83,13 @@ spec:
           - name: my-app-cert    # Gerenciado pela TLSPolicy
 ```
 
-## Modos TLS
+## TLS Modes
 
-- **Terminate**: O gateway termina o TLS e encaminha tráfego HTTP para o backend
-- **Passthrough**: O gateway encaminha o tráfego TLS sem terminar (para backends que precisam de TLS)
-- **Mutual**: mTLS - cliente e servidor se autenticam mutuamente
+- **Terminate**: The gateway terminates TLS and forwards HTTP traffic to the backend
+- **Passthrough**: The gateway forwards TLS traffic without terminating it (for backends that need TLS)
+- **Mutual**: mTLS - client and server authenticate each other
 
-## Verificação
+## Verification
 
 ```bash
 # Verificar certificados

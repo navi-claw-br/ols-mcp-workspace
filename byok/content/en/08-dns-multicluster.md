@@ -1,16 +1,16 @@
-# DNS e Multicluster no Red Hat Connectivity Link (RHCL)
+# DNS and Multicluster in Red Hat Connectivity Link (RHCL)
 
 ## DNSPolicy
 
-A DNSPolicy gerencia registros DNS para exposição de gateways, com suporte a health checks, load balancing multicluster e remediação automática.
+The DNSPolicy manages DNS records for gateway exposure, with support for health checks, multicluster load balancing, and automatic remediation.
 
-No fluxo de RHCL:
+In the RHCL flow:
 
-- a `HTTPRoute` define o `hostname`
-- a `DNSPolicy` publica no DNS os hostnames das rotas conectadas ao `Gateway`
-- portanto, expor um servico externamente exige os dois lados
+- the `HTTPRoute` defines the `hostname`
+- the `DNSPolicy` publishes to DNS the hostnames of the routes attached to the `Gateway`
+- therefore, exposing a service externally requires both sides
 
-## Configuração Básica
+## Basic Configuration
 
 ```yaml
 apiVersion: kuadrant.io/v1
@@ -30,7 +30,7 @@ spec:
     successThreshold: 1
 ```
 
-## Provedores DNS Suportados
+## Supported DNS Providers
 
 ### AWS Route53
 ```yaml
@@ -86,7 +86,7 @@ spec:
         name: gcp-dns-credentials
 ```
 
-## Health Checks Avançados
+## Advanced Health Checks
 
 ```yaml
 apiVersion: kuadrant.io/v1
@@ -114,11 +114,11 @@ spec:
       eu-west: 30
 ```
 
-## Multicluster com GeoDNS
+## Multicluster with GeoDNS
 
-O Connectivity Link suporta deploy multicluster onde gateways em diferentes regiões/clouds são descobertos via DNS.
+Connectivity Link supports multicluster deployments where gateways in different regions/clouds are discovered via DNS.
 
-### Arquitetura Multicluster
+### Multicluster Architecture
 
 ```
                     +--> us-east-1 cluster (70%)
@@ -128,7 +128,7 @@ Usuario -> DNS ---->+
                     +--> eu-west-1 cluster (30%)
 ```
 
-### Configuração Multicluster
+### Multicluster Configuration
 
 ```yaml
 # Cluster 1: us-east-1
@@ -165,21 +165,21 @@ spec:
       eu-west: 30
 ```
 
-## Remediação Automática
+## Automatic Remediation
 
-Quando um health check falha, o DNS controller automaticamente:
-1. Remove o endpoint unhealthy do DNS
-2. Redireciona tráfego para endpoints saudáveis
-3. Re-adiciona o endpoint quando recuperar
+When a health check fails, the DNS controller automatically:
+1. Removes the unhealthy endpoint from DNS
+2. Redirects traffic to healthy endpoints
+3. Re-adds the endpoint once it recovers
 
-## Regra pratica para o Lightspeed
+## Practical Rule for Lightspeed
 
-Se o usuario pedir para expor uma API e fornecer um FQDN, o assistente deve:
+If the user asks to expose an API and provides an FQDN, the assistant must:
 
-1. garantir `hostnames` na `HTTPRoute`
-2. conferir se ja existe `DNSPolicy` para o `Gateway`
-3. criar a `DNSPolicy` se nao existir
-4. responder com o hostname final, nao com um manifesto para o usuario aplicar
+1. ensure `hostnames` on the `HTTPRoute`
+2. check whether a `DNSPolicy` already exists for the `Gateway`
+3. create the `DNSPolicy` if it does not exist
+4. respond with the final hostname, not with a manifest for the user to apply
 
 ```bash
 # Verificar health checks

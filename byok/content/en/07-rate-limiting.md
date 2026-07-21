@@ -1,12 +1,12 @@
-# Rate Limiting no Red Hat Connectivity Link (RHCL)
+# Rate Limiting in Red Hat Connectivity Link (RHCL)
 
-## Visão Geral
+## Overview
 
-Rate limiting protege suas APIs e aplicações controlando a taxa de requisições que cada cliente pode fazer. O Connectivity Link suporta rate limiting via RateLimitPolicy.
+Rate limiting protects your APIs and applications by controlling the request rate that each client can make. Connectivity Link supports rate limiting via RateLimitPolicy.
 
-## Tipos de Rate Limiting
+## Types of Rate Limiting
 
-### 1. Rate Limiting por IP
+### 1. Rate Limiting by IP
 
 ```yaml
 apiVersion: kuadrant.io/v1alpha1
@@ -28,7 +28,7 @@ spec:
         - source.ip
 ```
 
-### 2. Rate Limiting por Usuário (JWT Claims)
+### 2. Rate Limiting by User (JWT Claims)
 
 ```yaml
 apiVersion: kuadrant.io/v1alpha1
@@ -50,7 +50,7 @@ spec:
         - auth.principal.username
 ```
 
-### 3. Rate Limiting por Caminho
+### 3. Rate Limiting by Path
 
 ```yaml
 apiVersion: kuadrant.io/v1alpha1
@@ -72,7 +72,7 @@ spec:
         - request.path
 ```
 
-### 4. Múltiplas Camadas de Rate Limit
+### 4. Multiple Rate Limit Tiers
 
 ```yaml
 apiVersion: kuadrant.io/v1alpha1
@@ -101,21 +101,21 @@ spec:
         - request.path
 ```
 
-## Estratégias de Limitação
+## Limiting Strategies
 
-### Window Types (Janelas)
-- **second**: Limitação por segundo (alta granularidade)
-- **minute**: Limitação por minuto
-- **hour**: Limitação por hora (para cotas generosas)
+### Window Types
+- **second**: Per-second limiting (high granularity)
+- **minute**: Per-minute limiting
+- **hour**: Per-hour limiting (for generous quotas)
 
-### Comportamento
-- **Synchronous**: Cliente recebe 429 Too Many Requests imediatamente
-- **Headers de resposta**:
-  - `X-RateLimit-Limit`: Limite configurado
-  - `X-RateLimit-Remaining`: Requisições restantes na janela
-  - `X-RateLimit-Reset`: Timestamp de reset da janela
+### Behavior
+- **Synchronous**: The client receives 429 Too Many Requests immediately
+- **Response headers**:
+  - `X-RateLimit-Limit`: Configured limit
+  - `X-RateLimit-Remaining`: Requests remaining in the window
+  - `X-RateLimit-Reset`: Window reset timestamp
 
-## Exemplo Completo
+## Complete Example
 
 ```yaml
 apiVersion: gateway.networking.k8s.io/v1
