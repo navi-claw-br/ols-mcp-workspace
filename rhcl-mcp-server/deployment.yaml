@@ -20,7 +20,7 @@ spec:
         - name: ghcr-pull
       containers:
         - name: rhcl-mcp-server
-          image: ghcr.io/navi-claw-br/rhcl-mcp-server:latest
+          image: quay.io/ricardi/rhcl-mcp-server:1.0.1
           imagePullPolicy: Always
           env:
             - name: MCP_PORT

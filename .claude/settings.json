@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -m py_compile rhcl_server.py)",
+      "Bash(oc set *)",
+      "Bash(curl -sk https://rhcl-mcp-server-ols-mcp-server.apps.bbdw.sandbox546.opentlc.com/)",
+      "Bash(python3 -c \"import json,sys; r=json.load\\(sys.stdin\\); print\\('tools:', len\\(r['result']['tools']\\), '→', [t['name'] for t in r['result']['tools']][:6], '...'\\)\")",
+      "Bash(sed -i '' 's|rhcl-mcp-server:1.0.1|rhcl-mcp-server:1.0.2|' deployment.yaml)",
+      "Bash(curl -sk https://rhcl-mcp-server-ols-mcp-server.apps.bbdw.sandbox546.opentlc.com/skill.md)"
+    ]
+  }
+}

@@ -1,0 +1,70 @@
+# orders-api — backend demo para teste de exposição via RHCL
+#
+# Propositalmente SEM Route/HTTPRoute: a exposição externa é o teste
+# que será pedido ao agente ("exponha o service orders-api do namespace
+# demo-apps via RHCL").
+#
+# Aplicar: oc apply -f k8s.yaml
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: demo-apps
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orders-api
+  namespace: demo-apps
+  labels:
+    app: orders-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: orders-api
+  template:
+    metadata:
+      labels:
+        app: orders-api
+    spec:
+      imagePullSecrets:
+        - name: quay-pull
+      containers:
+        - name: orders-api
+          image: quay.io/ricardi/orders-api:1.0.1
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 8080
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: orders-api
+  namespace: demo-apps
+  labels:
+    app: orders-api
+spec:
+  selector:
+    app: orders-api
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080

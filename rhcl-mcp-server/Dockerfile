@@ -11,7 +11,7 @@ RUN tar -xzf /tmp/oc.tar.gz -C /usr/local/bin/ oc && \
     dnf clean all
 
 WORKDIR /app
-COPY rhcl_server.py .
+COPY rhcl_server.py skill.md ./
 
 EXPOSE 8080
 

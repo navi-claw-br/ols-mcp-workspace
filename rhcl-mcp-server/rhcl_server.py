@@ -787,7 +787,7 @@ tools_registry = {
 
 SERVER_INFO = {
     "name": "rhcl-mcp-server",
-    "version": "1.3.0",
+    "version": "1.4.0",
     "description": "MCP Server for Red Hat Connectivity Link operations. "
                    "Provides tools to manage Gateways, HTTPRoutes, "
                    "DNSPolicy, AuthPolicies, and other RHCL resources.",
@@ -904,6 +904,20 @@ def main():
             self._respond(200, response)
 
         def do_GET(self):
+            if self.path.rstrip("/") in ("/skill.md", "/skill"):
+                try:
+                    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                           "skill.md"), "rb") as f:
+                        body = f.read()
+                except OSError:
+                    self._respond(404, {"error": "skill.md not found"})
+                    return
+                self.send_response(200)
+                self.send_header("Content-Type", "text/markdown; charset=utf-8")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(body)
+                return
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Access-Control-Allow-Origin", "*")
@@ -912,6 +926,7 @@ def main():
                 "name": SERVER_INFO["name"],
                 "version": SERVER_INFO["version"],
                 "tools": list(tools_registry.keys()),
+                "skill": "/skill.md",
             }).encode())
 
         def _respond(self, status, data):
