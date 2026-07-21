@@ -858,11 +858,20 @@ def main():
 
     class MCPHandler(http.server.BaseHTTPRequestHandler):
         def do_OPTIONS(self):
+            # Reflete os headers pedidos no preflight (clientes MCP de browser
+            # enviam mcp-protocol-version, mcp-session-id etc.)
+            requested = self.headers.get("Access-Control-Request-Headers",
+                                         "Content-Type, Authorization")
             self.send_response(200)
             self.send_header("Access-Control-Allow-Origin", "*")
-            self.send_header("Access-Control-Allow-Methods", "POST, OPTIONS")
-            self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", requested)
+            self.send_header("Access-Control-Max-Age", "86400")
             self.end_headers()
+
+        def do_DELETE(self):
+            # Encerramento de sessao do Streamable HTTP (stateless aqui)
+            self._respond(200, {"ok": True})
 
         def do_POST(self):
             content_length = int(self.headers.get("Content-Length", 0))
@@ -883,8 +892,17 @@ def main():
             method = msg.get("method", "")
             msg_id = msg.get("id", None)
 
+            # Notificacoes JSON-RPC (sem id) nao recebem resposta
+            if method.startswith("notifications/") or msg_id is None:
+                self.send_response(202)
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                return
+
             if method == "initialize":
                 result = handle_initialize(msg)
+            elif method == "ping":
+                result = {}
             elif method == "tools/list":
                 result = handle_list_tools(msg)
             elif method == "tools/call":
