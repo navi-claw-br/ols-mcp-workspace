@@ -61,7 +61,7 @@ Call a tool:
 curl -sk https://rhcl-mcp-server-ols-mcp-server.apps.bbdw.sandbox546.opentlc.com \
   -H 'Content-Type: application/json' \
   -H "Authorization: Bearer $OC_TOKEN" \
-  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"list_gateways","arguments":{}}}'
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"rhcl_list_gateways","arguments":{}}}'
 ```
 
 Responses follow MCP conventions: `result.content[].text` holds the output;
@@ -73,39 +73,39 @@ Read/inspect:
 
 | Tool | Purpose | Required args |
 |---|---|---|
-| `list_gateways` | List Gateway API Gateways | — (`namespace` optional) |
-| `get_gateway_status` | Detailed status of one Gateway | `name` |
-| `list_httproutes` | List HTTPRoutes | — |
-| `list_authpolicies` | List Kuadrant AuthPolicies | — |
-| `list_ratelimitpolicies` | List RateLimitPolicies | — |
-| `list_dnspolicies` | List DNSPolicies (attached to Gateways) | — |
-| `list_tlspolicies` | List TLSPolicies | — |
+| `rhcl_list_gateways` | List Gateway API Gateways | — (`namespace` optional) |
+| `rhcl_get_gateway_status` | Detailed status of one Gateway | `name` |
+| `rhcl_list_httproutes` | List HTTPRoutes | — |
+| `rhcl_list_authpolicies` | List Kuadrant AuthPolicies | — |
+| `rhcl_list_ratelimitpolicies` | List RateLimitPolicies | — |
+| `rhcl_list_dnspolicies` | List DNSPolicies (attached to Gateways) | — |
+| `rhcl_list_tlspolicies` | List TLSPolicies | — |
 
 Write/expose:
 
 | Tool | Purpose | Required args |
 |---|---|---|
-| `expose_service` | **Preferred**: end-to-end exposure — ensures HTTPRoute with hostname + DNSPolicy on the Gateway | `namespace`, `service` |
-| `create_httproute` | Create/update an HTTPRoute | `name`, `namespace`, `service` |
-| `patch_httproute` | Converge an existing HTTPRoute (hostname, backend, path) | `name`, `namespace` |
-| `delete_httproute` | Remove an exposure (idempotent) | `name`, `namespace` |
-| `create_dnspolicy` | Ensure DNSPolicy on a Gateway | — (`gateway` recommended) |
-| `create_authpolicy` | Attach an AuthPolicy to an HTTPRoute | `name`, `namespace`, `route` |
+| `rhcl_expose_service` | **Preferred**: end-to-end exposure — ensures HTTPRoute with hostname + DNSPolicy on the Gateway | `namespace`, `service` |
+| `rhcl_create_httproute` | Create/update an HTTPRoute | `name`, `namespace`, `service` |
+| `rhcl_patch_httproute` | Converge an existing HTTPRoute (hostname, backend, path) | `name`, `namespace` |
+| `rhcl_delete_httproute` | Remove an exposure (idempotent) | `name`, `namespace` |
+| `rhcl_create_dnspolicy` | Ensure DNSPolicy on a Gateway | — (`gateway` recommended) |
+| `rhcl_create_authpolicy` | Attach an AuthPolicy to an HTTPRoute | `name`, `namespace`, `route` |
 
 ## Rules of engagement
 
-1. When the user asks to "expose" a service/API, prefer **`expose_service`**:
+1. When the user asks to "expose" a service/API, prefer **`rhcl_expose_service`**:
    it finishes the job end-to-end instead of returning YAML.
 2. **Never create an external HTTPRoute without a hostname.** If the user gave
    a full FQDN, pass `hostname`. If they gave only a domain, pass `dns_suffix`
    and the hostname becomes `<service>.<dns_suffix>`. If neither is available,
    ask the user.
-3. `expose_service` ensures a `DNSPolicy` exists on the target Gateway
+3. `rhcl_expose_service` ensures a `DNSPolicy` exists on the target Gateway
    (`ensure_dns_policy` defaults to true) so the hostname is published
    automatically.
 4. If the HTTPRoute already exists, the server patches it rather than
    duplicating — safe to re-run.
-5. To undo an exposure, use `delete_httproute` (it uses ignore-not-found, so
+5. To undo an exposure, use `rhcl_delete_httproute` (it uses ignore-not-found, so
    it is safe even if already gone).
 6. Always report back the final FQDN and what was created or changed.
 7. On `forbidden` errors, the user's token lacks RBAC for that operation —
@@ -115,7 +115,7 @@ Write/expose:
 
 ```json
 {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{
-  "name":"expose_service",
+  "name":"rhcl_expose_service",
   "arguments":{
     "namespace":"my-app",
     "service":"orders-api",

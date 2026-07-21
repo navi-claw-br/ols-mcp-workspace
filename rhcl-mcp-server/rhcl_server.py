@@ -580,7 +580,7 @@ spec:
 
 # --- JSON-RPC handlers ---
 tools_registry = {
-    "list_gateways": {
+    "rhcl_list_gateways": {
         "description": "List all Gateway resources (Gateway API). "
                        "Accepts optional 'namespace' parameter. "
                        "Default: all namespaces.",
@@ -595,7 +595,7 @@ tools_registry = {
         },
         "handler": handle_list_gateways,
     },
-    "list_httproutes": {
+    "rhcl_list_httproutes": {
         "description": "List all HTTPRoute resources (Gateway API). "
                        "Accepts optional 'namespace' parameter.",
         "input_schema": {
@@ -606,7 +606,7 @@ tools_registry = {
         },
         "handler": handle_list_httproutes,
     },
-    "list_authpolicies": {
+    "rhcl_list_authpolicies": {
         "description": "List all AuthPolicy resources (Kuadrant API). "
                        "Accepts optional 'namespace' parameter.",
         "input_schema": {
@@ -617,7 +617,7 @@ tools_registry = {
         },
         "handler": handle_list_authpolicies,
     },
-    "list_ratelimitpolicies": {
+    "rhcl_list_ratelimitpolicies": {
         "description": "List all RateLimitPolicy resources (Kuadrant API).",
         "input_schema": {
             "type": "object",
@@ -627,7 +627,7 @@ tools_registry = {
         },
         "handler": handle_list_ratelimitpolicies,
     },
-    "list_dnspolicies": {
+    "rhcl_list_dnspolicies": {
         "description": "List all DNSPolicy resources (Kuadrant API). "
                        "DNSPolicy is attached to a Gateway, not to an HTTPRoute.",
         "input_schema": {
@@ -638,7 +638,7 @@ tools_registry = {
         },
         "handler": handle_list_dnspolicies,
     },
-    "list_tlspolicies": {
+    "rhcl_list_tlspolicies": {
         "description": "List all TLSPolicy resources (Kuadrant API).",
         "input_schema": {
             "type": "object",
@@ -648,7 +648,7 @@ tools_registry = {
         },
         "handler": handle_list_tlspolicies,
     },
-    "get_gateway_status": {
+    "rhcl_get_gateway_status": {
         "description": "Get detailed status of a specific Gateway. "
                        "Requires 'name' parameter.",
         "input_schema": {
@@ -661,12 +661,12 @@ tools_registry = {
         },
         "handler": handle_get_gateway_status,
     },
-    "create_httproute": {
+    "rhcl_create_httproute": {
         "description": "Create or update an HTTPRoute to expose a service via "
                        "the RHCL Gateway. External exposure requires a resolved "
                        "hostname, so provide hostname directly or provide "
                        "dns_suffix to generate <service>.<dns_suffix>. Prefer "
-                       "expose_service when you want the application reachable "
+                       "rhcl_expose_service when you want the application reachable "
                        "end-to-end.",
         "input_schema": {
             "type": "object",
@@ -685,7 +685,7 @@ tools_registry = {
         },
         "handler": handle_create_httproute,
     },
-    "create_dnspolicy": {
+    "rhcl_create_dnspolicy": {
         "description": "Ensure a DNSPolicy exists for a Gateway so hostnames "
                        "from HTTPRoutes can be published automatically. "
                        "Use this when exposing services externally via RHCL.",
@@ -702,7 +702,7 @@ tools_registry = {
         },
         "handler": handle_create_dnspolicy,
     },
-    "patch_httproute": {
+    "rhcl_patch_httproute": {
         "description": "Patch an existing HTTPRoute to converge hostname, "
                        "Gateway binding, backend service, port, and path. "
                        "Prefer this when the route already exists.",
@@ -723,7 +723,7 @@ tools_registry = {
         },
         "handler": handle_patch_httproute,
     },
-    "delete_httproute": {
+    "rhcl_delete_httproute": {
         "description": "Delete an existing HTTPRoute. Safe to call when the "
                        "route may already be absent because it uses "
                        "ignore-not-found.",
@@ -737,7 +737,7 @@ tools_registry = {
         },
         "handler": handle_delete_httproute,
     },
-    "expose_service": {
+    "rhcl_expose_service": {
         "description": "Preferred high-level tool to make an API reachable via "
                        "RHCL. It ensures the HTTPRoute has a hostname and ensures "
                        "a DNSPolicy exists on the target Gateway if needed. "
@@ -767,7 +767,7 @@ tools_registry = {
         },
         "handler": handle_expose_service,
     },
-    "create_authpolicy": {
+    "rhcl_create_authpolicy": {
         "description": "Create an AuthPolicy for an HTTPRoute. "
                        "Requires: name, namespace, route. "
                        "Optional: allow (default true).",
@@ -787,7 +787,7 @@ tools_registry = {
 
 SERVER_INFO = {
     "name": "rhcl-mcp-server",
-    "version": "1.4.0",
+    "version": "1.5.0",
     "description": "MCP Server for Red Hat Connectivity Link operations. "
                    "Provides tools to manage Gateways, HTTPRoutes, "
                    "DNSPolicy, AuthPolicies, and other RHCL resources.",
